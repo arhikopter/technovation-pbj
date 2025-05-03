@@ -19,35 +19,17 @@ const RECYCLABLE_TRASH_ITEMS = [
   'book', 'aluminum foil', 'tin can', 'metal can', 'container', 'plastic'
 ];
 
-// Non-recyclable or compostable trash items
-const NON_RECYCLABLE_TRASH_ITEMS = [
-  'food', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 
-  'hot dog', 'pizza', 'donut', 'cake', 'organic waste', 'wet waste'
-];
-
-// Items that could represent a toy frog in the video
-const FROG_PROXY_CLASSES = ['teddy bear', 'toy', 'doll', 'stuffed animal', 'handbag', 'suitcase'];
-
-// Oranges, apples, and other round fruits could be detected as lemons
-const LEMON_PROXY_CLASSES = ['orange', 'apple', 'sports ball'];
-
-// Combined trash items list for general trash detection
-const TRASH_ITEMS = [
-  ...RECYCLABLE_TRASH_ITEMS,
-  ...NON_RECYCLABLE_TRASH_ITEMS,
-  // Additional items that might be either depending on material
-  'vase', 'teddy bear', 'tv', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator',
-  'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket'
-];
-
-// Note: COCO-SSD doesn't specifically have "wrapper" as a class, but these
-// objects might be visually similar to wrappers and could be used as proxies
+// Wrappers are also considered recyclable
 const WRAPPER_LIKE_ITEMS = [
   'book', 'tie', 'handbag', 'backpack', 'box', 'suitcase'
 ];
 
-// We'll use teddy bear from COCO-SSD as a proxy for toy frog
-const TOY_FROG_CLASSES = ['teddy bear'];
+// Items that should not be classified as trash at all
+const NOT_TRASH_ITEMS = [
+  'person', 'human', 'man', 'woman', 'child', 'boy', 'girl', 
+  'dog', 'cat', 'bird', 'horse', 'sheep', 'cow', 'elephant', 
+  'bear', 'zebra', 'giraffe'
+];
 
 // React component for webcam
 const WebcamComponent: React.FC = () => {
@@ -57,10 +39,7 @@ const WebcamComponent: React.FC = () => {
   const [detectionStatus, setDetectionStatus] = useState<string>('Loading model...');
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   const [modelLoaded, setModelLoaded] = useState(false);
-  const [isFrogDetected, setIsFrogDetected] = useState(false);
-  const [isLemonDetected, setIsLemonDetected] = useState(false);
   const [recycleDetected, setRecycleDetected] = useState(false);
-  const [nonRecycleDetected, setNonRecycleDetected] = useState(false);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   const requestRef = useRef<number | null>(null);
   const [errorCount, setErrorCount] = useState(0);
@@ -77,10 +56,18 @@ const WebcamComponent: React.FC = () => {
   const microbitDeviceRef = useRef<BluetoothDevice | null>(null);
   const microbitServicesRef = useRef<Record<string, any>>({});
   const microbitGattServerRef = useRef<BluetoothRemoteGATTServer | null>(null);
+  
+  // No throttling for important state changes
+  const lastMicrobitUpdateRef = useRef<number>(0);
+  const microbitUpdateIntervalMs = 100; // 100ms between updates (reduced from 500ms)
 
   // Load the TensorFlow model when component mounts
   useEffect(() => {
     let mounted = true;
+    
+    // Log recyclable items for debugging
+    console.log("RECYCLABLE_TRASH_ITEMS:", RECYCLABLE_TRASH_ITEMS);
+    console.log("WRAPPER_LIKE_ITEMS:", WRAPPER_LIKE_ITEMS);
     
     async function loadModel() {
       try {
@@ -231,7 +218,6 @@ const WebcamComponent: React.FC = () => {
           
           // Create a function to write a pattern to the LED display
           const writeMatrixState = async (pattern: boolean[][]) => {
-            // Convert the pattern to a byte array
             const byteArray = new Uint8Array(5);
             for (let i = 0; i < 5; i++) {
               let byte = 0;
@@ -251,21 +237,18 @@ const WebcamComponent: React.FC = () => {
             writeMatrixState
           };
           
-          // Display a welcome message
-          await writeText('Hi!');
+          // Display a welcome pattern instead of text
+          // Show a smile pattern
+          const smilePattern = [
+            [false, false, false, false, false],
+            [false, true, false, true, false],
+            [false, false, false, false, false],
+            [true, false, false, false, true],
+            [false, true, true, true, false]
+          ];
+          await writeMatrixState(smilePattern);
           
-          // After 2 seconds, show a smile
-          setTimeout(async () => {
-            // Create a pattern for a smile (5x5 grid)
-            const pattern = [
-              [0, 0, 0, 0, 0],
-              [0, 1, 0, 1, 0],
-              [0, 0, 0, 0, 0],
-              [1, 0, 0, 0, 1],
-              [0, 1, 1, 1, 0]
-            ];
-            await writeMatrixState(pattern.map(row => row.map(val => val === 1)));
-          }, 2000);
+          // We don't need the setTimeout for text now since we're showing the pattern immediately
         }
       } catch (ledError) {
         console.error('Error setting up LED service:', ledError);
@@ -318,6 +301,15 @@ const WebcamComponent: React.FC = () => {
   const displayOnMicrobit = async (text: string) => {
     if (!microbitConnected || !microbitServicesRef.current.ledService) return;
     
+    // Check if we should throttle updates
+    const now = Date.now();
+    if (now - lastMicrobitUpdateRef.current < microbitUpdateIntervalMs) {
+      return; // Skip this update if not enough time has passed
+    }
+    
+    // Update the timestamp
+    lastMicrobitUpdateRef.current = now;
+    
     try {
       console.log(`Displaying "${text}" on micro:bit`);
       
@@ -328,6 +320,62 @@ const WebcamComponent: React.FC = () => {
       }
     } catch (error) {
       console.error('Error displaying text on micro:bit:', error);
+    }
+  };
+
+  // Display pattern on micro:bit for recyclable status
+  const displayRecyclablePatternOnMicrobit = async () => {
+    if (!microbitConnected || !microbitServicesRef.current.ledService) return;
+    
+    const ledService = microbitServicesRef.current.ledService;
+    if (!ledService || !ledService.writeMatrixState) return;
+    
+    try {
+      // Right arrow pattern for recyclable items
+      const rightArrowPattern = [
+        [false, false, true, false, false],
+        [false, false, false, true, false],
+        [true, true, true, true, true],
+        [false, false, false, true, false],
+        [false, false, true, false, false]
+      ];
+      
+      // Left arrow pattern for non-recyclable items
+      const leftArrowPattern = [
+        [false, false, true, false, false],
+        [false, true, false, false, false],
+        [true, true, true, true, true],
+        [false, true, false, false, false],
+        [false, false, true, false, false]
+      ];
+      
+      // Empty pattern for when no objects are detected
+      const emptyPattern = [
+        [false, false, false, false, false],
+        [false, false, false, false, false],
+        [false, false, false, false, false],
+        [false, false, false, false, false],
+        [false, false, false, false, false]
+      ];
+      
+      // Choose pattern based on detection state and if objects are present
+      let patternToShow;
+      
+      if (detectedObjects.length === 0) {
+        // No objects detected, show nothing
+        patternToShow = emptyPattern;
+      } else if (recycleDetected) {
+        // Recyclable objects detected, show right arrow
+        patternToShow = rightArrowPattern;
+      } else {
+        // Non-recyclable objects detected, show left arrow
+        patternToShow = leftArrowPattern;
+      }
+      
+      // Display the pattern
+      await ledService.writeMatrixState(patternToShow);
+    } catch (error) {
+      console.error('Error displaying pattern on micro:bit:', error);
     }
   };
 
@@ -346,51 +394,23 @@ const WebcamComponent: React.FC = () => {
     });
   };
 
-  // Check if an object is considered trash
-  const isTrash = (objectClass: string): boolean => {
-    return TRASH_ITEMS.includes(objectClass.toLowerCase());
-  };
-
-  // Check if an object is recyclable trash
+  // Check if an object is recyclable (including wrappers)
   const isRecyclable = (objectClass: string): boolean => {
-    return RECYCLABLE_TRASH_ITEMS.includes(objectClass.toLowerCase());
+    const lowerClass = objectClass.toLowerCase();
+    return RECYCLABLE_TRASH_ITEMS.includes(lowerClass) || WRAPPER_LIKE_ITEMS.includes(lowerClass);
   };
 
-  // Check if an object is non-recyclable trash or compost
-  const isNonRecyclable = (objectClass: string): boolean => {
-    return NON_RECYCLABLE_TRASH_ITEMS.includes(objectClass.toLowerCase());
-  };
-
-  // Check if an object is considered a wrapper-like item
-  const isWrapper = (objectClass: string): boolean => {
-    return WRAPPER_LIKE_ITEMS.includes(objectClass.toLowerCase());
-  };
-
-  // Check if an object is considered a toy frog (using teddy bear as proxy)
-  const isToyFrog = (objectClass: string): boolean => {
-    return TOY_FROG_CLASSES.includes(objectClass.toLowerCase());
-  };
-
-  // Check if an object could potentially be a lemon
-  const isPotentialLemon = (objectClass: string): boolean => {
-    return LEMON_PROXY_CLASSES.includes(objectClass.toLowerCase());
-  };
-
-  // Process lemon detection with custom logic
-  const processLemonDetection = (objects: DetectedObject[]): boolean => {
-    // Look for objects that could be lemons
-    const potentialLemons = objects.filter(obj => isPotentialLemon(obj.class));
-    
-    // If we have potential lemons, we'll consider them lemons for this demo
-    return potentialLemons.length > 0;
+  // Check if an object is not trash (like humans and animals)
+  const isNotTrash = (objectClass: string): boolean => {
+    const lowerClass = objectClass.toLowerCase();
+    return NOT_TRASH_ITEMS.includes(lowerClass);
   };
 
   // Main detection function using TensorFlow.js
   const detectObjects = useCallback(async () => {
-    // Skip if detection is already running to prevent concurrent calls
+    // Skip if detection is already running or prerequisites not met
     if (detectionRunningRef.current || !isStreaming || !videoRef.current || !modelRef.current) {
       if (isStreaming && modelLoaded) {
-        // Schedule next frame if we're streaming but skipped this detection
         requestRef.current = requestAnimationFrame(detectObjects);
       }
       return;
@@ -399,15 +419,14 @@ const WebcamComponent: React.FC = () => {
     detectionRunningRef.current = true;
     
     try {
-      // Make sure the video is actually ready
+      // Make sure the video is ready
       if (videoRef.current.readyState < 2) {
-        console.log('Video not ready yet');
         detectionRunningRef.current = false;
         requestRef.current = requestAnimationFrame(detectObjects);
         return;
       }
       
-      // Ensure TensorFlow backend is initialized
+      // Ensure TensorFlow backend is ready
       if (!tf.getBackend()) {
         await tf.setBackend('webgl');
         await tf.ready();
@@ -419,77 +438,52 @@ const WebcamComponent: React.FC = () => {
       // Reset error count on successful detection
       if (errorCount > 0) setErrorCount(0);
       
-      // Process and update detected objects
-      const detectedItems = processDetections(predictions);
-      setDetectedObjects(detectedItems);
+      // Process all detected objects
+      const allDetectedItems = processDetections(predictions);
       
-      // Find recyclable and non-recyclable items
-      const recyclableItems = detectedItems.filter(obj => isRecyclable(obj.class));
-      const nonRecyclableItems = detectedItems.filter(obj => isNonRecyclable(obj.class));
+      // Check for not-trash items (like humans)
+      const notTrashItems = allDetectedItems.filter(obj => isNotTrash(obj.class));
+      const hasNotTrashItems = notTrashItems.length > 0;
+
+      // Filter out "not trash" items from trash detection
+      const trashItems = allDetectedItems.filter(obj => !isNotTrash(obj.class));
       
-      // Update recycling state
+      // Only update detected objects with items that are classified as trash
+      setDetectedObjects(trashItems);
+      
+      // Check for recyclable items only among trash items
+      const recyclableItems = trashItems.filter(obj => isRecyclable(obj.class));
+      
+      // Update recyclable detection state
       setRecycleDetected(recyclableItems.length > 0);
-      setNonRecycleDetected(nonRecyclableItems.length > 0);
       
-      // Wrappers are also considered recyclable
-      const wrapperItems = detectedItems.filter(obj => isWrapper(obj.class));
-      if (wrapperItems.length > 0) {
-        setRecycleDetected(true);
-      }
-      
-      // Check for toy frog
-      const foundFrog = detectedItems.some(obj => isToyFrog(obj.class));
-      setIsFrogDetected(foundFrog);
-      
-      // Check for lemon
-      const foundLemon = processLemonDetection(detectedItems);
-      setIsLemonDetected(foundLemon);
-      
-      // Update status based on detection results
-      if (foundFrog) {
-        setDetectionStatus(`Toy frog detected!`);
-        if (microbitConnected) displayOnMicrobit('FROG');
-      } else if (foundLemon) {
-        setDetectionStatus(`Lemon detected!`);
-        if (microbitConnected) displayOnMicrobit('LEMON');
+      // Update status messages
+      if (hasNotTrashItems) {
+        const notTrashNames = notTrashItems.map(item => item.class).join(', ');
+        
+        if (recyclableItems.length > 0) {
+          // Both not-trash and recyclable items detected
+          setDetectionStatus(`Detected: ${notTrashNames} (not trash) and recyclable items: ${recyclableItems.map(item => item.class).join(', ')}`);
+        } else if (trashItems.length > 0) {
+          // Not-trash and non-recyclable trash detected
+          setDetectionStatus(`Detected: ${notTrashNames} (not trash) and non-recyclable items`);
+        } else {
+          // Only not-trash items detected
+          setDetectionStatus(`Detected: ${notTrashNames} (not trash)`);
+        }
       } else if (recyclableItems.length > 0) {
-        const recyclableNames = recyclableItems.map(item => item.class).join(', ');
-        setDetectionStatus(`Recyclable items detected: ${recyclableNames}!`);
-        // Send to micro:bit - we'll just show the first item
-        if (microbitConnected && recyclableItems.length > 0) {
-          const shortName = recyclableItems[0].class.substring(0, 5); // First 5 chars
-          displayOnMicrobit(shortName);
-        }
-      } else if (nonRecyclableItems.length > 0) {
-        const nonRecyclableNames = nonRecyclableItems.map(item => item.class).join(', ');
-        setDetectionStatus(`Non-recyclable items detected: ${nonRecyclableNames}!`);
-        // Send to micro:bit - we'll just show the first item
-        if (microbitConnected && nonRecyclableItems.length > 0) {
-          const shortName = nonRecyclableItems[0].class.substring(0, 5); // First 5 chars
-          displayOnMicrobit(shortName);
-        }
-      } else if (wrapperItems.length > 0) {
-        const wrapperNames = wrapperItems.map(item => item.class).join(', ');
-        setDetectionStatus(`Recyclable wrappers detected: ${wrapperNames}!`);
-        if (microbitConnected) displayOnMicrobit('WRAP');
-      } else if (detectedItems.length === 0) {
+        // Only recyclable items detected
+        setDetectionStatus(`Recyclable items detected: ${recyclableItems.map(item => item.class).join(', ')}!`);
+      } else if (trashItems.length === 0) {
+        // No objects detected at all
         setDetectionStatus('No objects detected');
-        if (microbitConnected) displayOnMicrobit('NONE');
       } else {
-        setDetectionStatus(`Detected ${detectedItems.length} object(s)`);
-        // If there's a person, tell micro:bit
-        const person = detectedItems.find(obj => obj.class === 'person');
-        if (microbitConnected && person) {
-          displayOnMicrobit('PERSON');
-        } else if (microbitConnected) {
-          // Show the first detected object
-          const shortName = detectedItems[0].class.substring(0, 5); // First 5 chars
-          displayOnMicrobit(shortName);
-        }
+        // Only non-recyclable trash detected
+        setDetectionStatus(`No recyclable items found among ${trashItems.length} detected object(s)`);
       }
       
-      // Draw detection boxes
-      drawDetections(detectedItems);
+      // Draw detection boxes for all objects (including not-trash)
+      drawDetections(trashItems);
       
       // Continue detection loop
       detectionRunningRef.current = false;
@@ -498,24 +492,14 @@ const WebcamComponent: React.FC = () => {
       }
     } catch (error) {
       console.error('Detection error:', error);
-      
-      // Increment error count
       setErrorCount(prev => prev + 1);
       
-      // Handle error based on count
-      if (errorCount < 3) {
-        setDetectionStatus('Detection error, retrying...');
-      } else {
-        setDetectionStatus('Detection error occurred');
-        if (microbitConnected) displayOnMicrobit('ERROR');
-      }
-      
-      // Release this detection cycle
+      // Handle errors
+      setDetectionStatus(errorCount < 3 ? 'Detection error, retrying...' : 'Detection error occurred');
       detectionRunningRef.current = false;
       
-      // If we've had multiple errors but still want to keep trying
+      // Retry with increasing delay if not too many errors
       if (errorCount < 5 && isStreaming) {
-        // Delay longer between retries as error count increases
         setTimeout(() => {
           if (isStreaming) {
             requestRef.current = requestAnimationFrame(detectObjects);
@@ -523,7 +507,7 @@ const WebcamComponent: React.FC = () => {
         }, errorCount * 500);
       }
     }
-  }, [isStreaming, modelLoaded, errorCount, microbitConnected]);
+  }, [isStreaming, modelLoaded, errorCount]);
 
   // Draw detection boxes on canvas
   const drawDetections = (objects: DetectedObject[]) => {
@@ -544,81 +528,110 @@ const WebcamComponent: React.FC = () => {
       // Clear previous drawings
       ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       
-      // Save the transformed coordinates for label drawing after restoring context
-      const objectsWithScreenCoords = objects.map(obj => {
-        // Calculate the mirrored x-coordinate for the box
-        const mirroredX = videoWidth - obj.x - obj.width;
-        
-        return {
-          ...obj,
-          screenX: mirroredX, // Store the screen coordinates
-          screenY: obj.y
-        };
-      });
+      // Draw trash objects with normal colors
+      drawObjectsOnCanvas(objects);
       
-      // First draw the bounding boxes with mirrored coordinates
-      ctx.save();
-      
-      // Handle mirrored video - flip the context horizontally
-      ctx.scale(-1, 1);
-      ctx.translate(-canvasRef.current.width, 0);
-      
-      // Draw only the bounding boxes in the mirrored context
-      objects.forEach(obj => {
-        // Choose color based on object class
-        let color = 'yellow';
-        if (obj.class === 'person') color = 'cyan';
-        if (isRecyclable(obj.class)) color = 'lime';
-        if (isNonRecyclable(obj.class)) color = 'red';
-        if (isWrapper(obj.class)) color = 'orange';
-        if (isToyFrog(obj.class)) color = 'magenta';
-        if (isPotentialLemon(obj.class)) color = 'yellow';
-        
-        // Draw bounding box (flipped)
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 4;
-        ctx.strokeRect(obj.x, obj.y, obj.width, obj.height);
-      });
-      
-      // Restore context to normal (unflipped) state
-      ctx.restore();
-      
-      // Now draw the labels in normal orientation so they're readable
-      objectsWithScreenCoords.forEach(obj => {
-        // Choose color based on object class
-        let color = 'yellow';
-        if (obj.class === 'person') color = 'cyan';
-        if (isRecyclable(obj.class)) color = 'lime';
-        if (isNonRecyclable(obj.class)) color = 'red';
-        if (isWrapper(obj.class)) color = 'orange';
-        if (isToyFrog(obj.class)) color = 'magenta';
-        if (isPotentialLemon(obj.class)) color = 'yellow';
-        
-        // Prepare label text
-        let labelText = `${obj.class}: ${obj.confidence}%`;
-        
-        // Add classification to label
-        if (isRecyclable(obj.class)) {
-          labelText = `${obj.class} (Recyclable): ${obj.confidence}%`;
-        } else if (isNonRecyclable(obj.class)) {
-          labelText = `${obj.class} (Non-Recyclable): ${obj.confidence}%`;
-        } else if (isPotentialLemon(obj.class)) {
-          labelText = `Lemon (${obj.class}): ${obj.confidence}%`;
-        }
-        
-        // Draw text background in normal orientation
-        ctx.font = 'bold 16px Arial';
-        const textMetrics = ctx.measureText(labelText);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(obj.screenX, obj.screenY - 30, textMetrics.width + 10, 30);
-        
-        // Draw label text in normal orientation
-        ctx.fillStyle = color;
-        ctx.fillText(labelText, obj.screenX + 5, obj.screenY - 10);
-      });
+      // Find any "not trash" objects and draw them separately
+      if (videoRef.current && modelRef.current) {
+        modelRef.current.detect(videoRef.current, undefined, 0.5).then(predictions => {
+          const notTrashObjects = processDetections(
+            predictions.filter(pred => isNotTrash(pred.class))
+          );
+          
+          // Draw not-trash objects (like humans) with blue color
+          if (notTrashObjects.length > 0) {
+            drawObjectsOnCanvas(notTrashObjects, 'blue', 'Not Trash');
+          }
+        }).catch(err => {
+          console.error('Error detecting not-trash objects:', err);
+        });
+      }
     } catch (error) {
       console.error('Error drawing detections:', error);
     }
+  };
+  
+  // Helper function to draw objects on canvas with specified color and label
+  const drawObjectsOnCanvas = (objects: DetectedObject[], defaultColor?: string, labelPrefix?: string) => {
+    if (!canvasRef.current || !videoRef.current) return;
+
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
+    
+    // Get video dimensions
+    const videoWidth = videoRef.current.videoWidth;
+    const videoHeight = videoRef.current.videoHeight;
+    
+    // Save the transformed coordinates for label drawing after restoring context
+    const objectsWithScreenCoords = objects.map(obj => {
+      // Calculate the mirrored x-coordinate for the box
+      const mirroredX = videoWidth - obj.x - obj.width;
+      
+      return {
+        ...obj,
+        screenX: mirroredX, // Store the screen coordinates
+        screenY: obj.y
+      };
+    });
+    
+    // First draw the bounding boxes with mirrored coordinates
+    ctx.save();
+    
+    // Handle mirrored video - flip the context horizontally
+    ctx.scale(-1, 1);
+    ctx.translate(-canvasRef.current.width, 0);
+    
+    // Draw only the bounding boxes in the mirrored context
+    objects.forEach(obj => {
+      // Choose color based on object class or use provided default
+      let color;
+      if (defaultColor) {
+        color = defaultColor;
+      } else {
+        color = isRecyclable(obj.class) ? 'lime' : 'red';
+      }
+      
+      // Draw bounding box (flipped)
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.strokeRect(obj.x, obj.y, obj.width, obj.height);
+    });
+    
+    // Restore context to normal (unflipped) state
+    ctx.restore();
+    
+    // Now draw the labels in normal orientation so they're readable
+    objectsWithScreenCoords.forEach(obj => {
+      // Choose color based on classification or use provided default
+      let color;
+      if (defaultColor) {
+        color = defaultColor;
+      } else {
+        color = isRecyclable(obj.class) ? 'lime' : 'red';
+      }
+      
+      // Prepare label text
+      let labelText = `${obj.class}: ${obj.confidence}%`;
+      
+      // Add classification
+      if (labelPrefix) {
+        labelText = `${obj.class} (${labelPrefix}): ${obj.confidence}%`;
+      } else if (isRecyclable(obj.class)) {
+        labelText = `${obj.class} (Recyclable): ${obj.confidence}%`;
+      } else {
+        labelText = `${obj.class} (Non-Recyclable): ${obj.confidence}%`;
+      }
+      
+      // Draw text background in normal orientation
+      ctx.font = 'bold 16px Arial';
+      const textMetrics = ctx.measureText(labelText);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(obj.screenX, obj.screenY - 30, textMetrics.width + 10, 30);
+      
+      // Draw label text in normal orientation
+      ctx.fillStyle = color;
+      ctx.fillText(labelText, obj.screenX + 5, obj.screenY - 10);
+    });
   };
 
   // Clear canvas
@@ -659,6 +672,13 @@ const WebcamComponent: React.FC = () => {
       }
     };
   }, [isStreaming, modelLoaded, detectObjects]);
+
+  // Update micro:bit display when recyclable detection state changes or objects appear/disappear
+  useEffect(() => {
+    if (microbitConnected) {
+      displayRecyclablePatternOnMicrobit();
+    }
+  }, [recycleDetected, microbitConnected, detectedObjects]);
 
   // Start webcam
   const startWebcam = async () => {
@@ -708,31 +728,18 @@ const WebcamComponent: React.FC = () => {
       
       // Reset error count and detection states
       setErrorCount(0);
-      setIsFrogDetected(false);
-      setIsLemonDetected(false);
       setRecycleDetected(false);
-      setNonRecycleDetected(false);
     }
   };
 
-  // Check if any trash is detected (for legacy status coloring)
-  const isTrashDetected = detectedObjects.some(obj => isTrash(obj.class) || isWrapper(obj.class));
-
-  // Determine the container classes based on detections
-  const containerClasses = [
-    'webcam-container',
-    isFrogDetected ? 'frog-detected' : '',
-    isLemonDetected ? 'lemon-detected' : '',
-  ].filter(Boolean).join(' ');
-
   return (
-    <div className={containerClasses}>
+    <div className="webcam-container">
       <div className="status-icons">
-        <div className={`icon checkmark ${recycleDetected ? 'active' : ''}`}>
-          ✓
+        <div className={`icon right-arrow ${detectedObjects.length > 0 && recycleDetected ? 'active' : ''}`}>
+          →
         </div>
-        <div className={`icon x-mark ${nonRecycleDetected ? 'active' : ''}`}>
-          ✕
+        <div className={`icon left-arrow ${detectedObjects.length > 0 && !recycleDetected ? 'active' : ''}`}>
+          ←
         </div>
       </div>
       <div className="video-container">
@@ -748,7 +755,7 @@ const WebcamComponent: React.FC = () => {
           className="detection-canvas"
         />
       </div>
-      <div className={`detection-status ${isTrashDetected ? 'bottle-detected' : ''} ${isFrogDetected ? 'frog-detected' : ''} ${isLemonDetected ? 'lemon-detected' : ''}`}>
+      <div className={`detection-status ${recycleDetected ? 'recyclable-detected' : ''}`}>
         {detectionStatus}
       </div>
       <div className="microbit-connection">
@@ -777,20 +784,10 @@ const WebcamComponent: React.FC = () => {
             {detectedObjects.map((obj, index) => (
               <li 
                 key={index} 
-                className={`
-                  ${isRecyclable(obj.class) ? 'recyclable-object' : ''}
-                  ${isNonRecyclable(obj.class) ? 'non-recyclable-object' : ''}
-                  ${isWrapper(obj.class) ? 'wrapper-object' : ''}
-                  ${isPotentialLemon(obj.class) ? 'lemon-object' : ''}
-                  ${isToyFrog(obj.class) ? 'frog-object' : ''}
-                `}
+                className={isRecyclable(obj.class) ? 'recyclable-object' : 'non-recyclable-object'}
               >
-                {isPotentialLemon(obj.class) ? 'Lemon' : obj.class}: {obj.confidence}% confidence
-                {isRecyclable(obj.class) && ' (RECYCLABLE)'}
-                {isNonRecyclable(obj.class) && ' (NON-RECYCLABLE)'}
-                {isWrapper(obj.class) && ' (RECYCLABLE WRAPPER)'}
-                {isPotentialLemon(obj.class) && ' (LEMON)'}
-                {isToyFrog(obj.class) && ' (TOY FROG)'}
+                {obj.class}: {obj.confidence}% confidence
+                {isRecyclable(obj.class) ? ' (RECYCLABLE)' : ' (NON-RECYCLABLE)'}
               </li>
             ))}
           </ul>
