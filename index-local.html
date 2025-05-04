@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <!-- Using relative paths for local file viewing -->
+  <base href="./"/>
+  <link rel="icon" href="./favicon.ico"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
+  <meta name="theme-color" content="#000000"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="description" content="LIFT - Recycling Detection Application"/>
+  <link rel="apple-touch-icon" href="./logo192.png"/>
+  <link rel="manifest" href="./manifest.json"/>
+  <title>L.I.F.T Recycling Detector (Local Version)</title>
+  
+  <!-- Debug script to help catch loading errors -->
+  <script>
+    window.onerror = function(message, source, lineno, colno, error) {
+      console.error('Error:', message, 'at', source, lineno, colno);
+      document.getElementById('error-display').innerHTML += '<p>Error: ' + message + '<br>Source: ' + source + '</p>';
+      return false;
+    };
+    
+    window.onload = function() {
+      console.log('Window loaded successfully');
+      document.getElementById('status-display').textContent = 'Page loaded successfully';
+    };
+  </script>
+  
+  <link href="./static/css/main.d809af0a.css" rel="stylesheet">
+  <script defer="defer" src="./static/js/main.0be782c7.js"></script>
+  
+  <style>
+    /* Fallback styles in case the main CSS fails to load */
+    body {
+      background-color: #000000;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    #debug-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      color: #ffffff;
+      padding: 10px;
+      font-size: 12px;
+      z-index: 9999;
+      max-height: 30vh;
+      overflow-y: auto;
+    }
+    
+    #root {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+  </style>
+</head>
+<body>
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+  <div id="root"></div>
+  
+  <!-- Debug panel for local testing -->
+  <div id="debug-panel">
+    <h3>Local Debug Information</h3>
+    <div id="status-display">Loading...</div>
+    <div id="error-display"></div>
+  </div>
+</body>
+</html> 
