@@ -4,8 +4,11 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
-// Get the base path from environment variables or default to '/'
-const basePath = process.env.REACT_APP_BASE_PATH || '/';
+// Get the base path from homepage in package.json or default to '/'
+const basePath = process.env.PUBLIC_URL || '/';
+
+// Log basepath to help with debugging
+console.log('Base path:', basePath);
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement

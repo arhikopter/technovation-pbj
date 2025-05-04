@@ -50,7 +50,7 @@ html, body {
 /* Base Container */
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  background-color: #FFFFFF;
+  background-color: #000000 !important; /* Force black background to avoid white screen */
   color: #000000;
   font-size: 16px;
   line-height: 1.5;
@@ -66,7 +66,7 @@ body {
   height: 100%;
   max-width: 100%;
   margin: 0;
-  background: #FFFFFF;
+  background: #000000 !important; /* Force black background to avoid white screen */
   position: relative;
   overflow: hidden;
 }
@@ -79,7 +79,7 @@ body {
   overflow: hidden;
   position: relative;
   padding: 0;
-  background-color: #FFFFFF;
+  background-color: #000000 !important; /* Force black background to avoid white screen */
   width: 100%;
   height: 100%;
 }

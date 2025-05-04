@@ -2,7 +2,7 @@
   "name": "webcam-app",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://lift-recycling-detector.github.io/",
+  "homepage": "https://arikhopter.github.io/technovation-pbi/",
   "dependencies": {
     "@radix-ui/react-icons": "^1.3.2",
     "@tensorflow-models/coco-ssd": "^2.2.3",

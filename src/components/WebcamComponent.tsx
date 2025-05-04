@@ -84,15 +84,23 @@ const WebcamComponent: React.FC = () => {
           console.warn('Failed to clear TF memory:', e);
         }
         
+        // Set a longer wait time for GitHub Pages
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
         // Simple configuration - minimal settings to avoid errors
         await tf.setBackend('webgl');
         await tf.ready();
         console.log('Using TensorFlow backend:', tf.getBackend());
         
+        // Set the modelURL to undefined to let TensorFlow use default model paths
+        const modelConfig = {
+          base: 'lite_mobilenet_v2' as const
+        };
+        
+        console.log('Loading model with config:', modelConfig);
+        
         // Simple model loading - using the most basic approach
-        const model = await cocoSsd.load({
-          base: 'lite_mobilenet_v2'
-        });
+        const model = await cocoSsd.load(modelConfig);
         
         if (!mounted) return;
         
