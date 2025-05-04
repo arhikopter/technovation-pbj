@@ -52,36 +52,46 @@ const WebcamComponent: React.FC = () => {
   const fpsCountRef = useRef<number>(0);
   const lastFpsUpdateRef = useRef<number>(0);
   const [fps, setFps] = useState<number>(0);
+  const frameCountRef = useRef<number>(0); // New ref for actual frame counting
 
   // Load the TensorFlow model when component mounts
   useEffect(() => {
     let mounted = true;
+    let loadAttempts = 0;
+    const maxAttempts = 3;
     
     async function loadModel() {
+      if (loadAttempts >= maxAttempts) {
+        if (mounted) setDetectionStatus(`Failed to load model after ${maxAttempts} attempts. Please refresh the page.`);
+        return;
+      }
+      
+      loadAttempts++;
       try {
-        if (mounted) setDetectionStatus('Loading model...');
+        if (mounted) setDetectionStatus(`Loading model (attempt ${loadAttempts})...`);
         
-        // Enable optimizations for TensorFlow.js
-        console.log('TensorFlow.js version:', tf.version.tfjs);
+        // Reset any previous state
+        if (modelRef.current) {
+          modelRef.current = null;
+        }
         
-        // Configure TensorFlow.js for optimal performance
-        tf.ENV.set('WEBGL_DELETE_TEXTURE_THRESHOLD', 0);
-        tf.ENV.set('WEBGL_FORCE_F16_TEXTURES', true);
-        tf.ENV.set('WEBGL_CPU_FORWARD', false);
-        tf.ENV.set('WEBGL_PACK', true);
+        // Clear all tensors and TF memory
+        try {
+          tf.disposeVariables();
+          tf.engine().endScope();
+          tf.engine().startScope();
+        } catch (e) {
+          console.warn('Failed to clear TF memory:', e);
+        }
         
-        // Set memory efficient backend
+        // Simple configuration - minimal settings to avoid errors
         await tf.setBackend('webgl');
         await tf.ready();
         console.log('Using TensorFlow backend:', tf.getBackend());
         
-        // Warm up the engine to avoid initial lag
-        const dummyTensor = tf.zeros([1, 224, 224, 3]);
-        dummyTensor.dispose();
-        
-        // Load the COCO-SSD model with a faster model for real-time performance
+        // Simple model loading - using the most basic approach
         const model = await cocoSsd.load({
-          base: 'lite_mobilenet_v2'  // Using lighter model for better speed
+          base: 'lite_mobilenet_v2'
         });
         
         if (!mounted) return;
@@ -89,23 +99,18 @@ const WebcamComponent: React.FC = () => {
         modelRef.current = model;
         console.log('Model loaded successfully');
         
-        // Run garbage collection
-        try {
-          // @ts-ignore
-          if (window.gc) {
-            // @ts-ignore
-            window.gc();
-          }
-        } catch (e) {
-          console.log('GC not available');
-        }
-        
         setModelLoaded(true);
         setDetectionStatus('Model loaded. Ready to start.');
       } catch (error) {
-        console.error('Failed to load model:', error);
+        console.error(`Failed to load model (attempt ${loadAttempts}):`, error);
+        
         if (mounted) {
-          setDetectionStatus(`Error loading model: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          setDetectionStatus(`Error loading model: ${error instanceof Error ? error.message : 'Unknown error'}. Retrying...`);
+          
+          // Wait before retrying
+          setTimeout(() => {
+            if (mounted) loadModel();
+          }, 2000);
         }
       }
     }
@@ -148,7 +153,38 @@ const WebcamComponent: React.FC = () => {
     return NOT_TRASH_ITEMS.includes(lowerClass);
   };
 
-  // Main detection function using TensorFlow.js
+  // New function for frame counting separate from detection
+  const countFrames = useCallback(() => {
+    frameCountRef.current++;
+    const now = performance.now();
+    
+    // Update FPS once per second
+    if (now - lastFpsUpdateRef.current >= 1000) {
+      setFps(frameCountRef.current);
+      frameCountRef.current = 0;
+      lastFpsUpdateRef.current = now;
+    }
+    
+    // Continue counting frames if streaming
+    if (isStreaming) {
+      requestAnimationFrame(countFrames);
+    }
+  }, [isStreaming]);
+
+  // Start frame counting when streaming starts
+  useEffect(() => {
+    if (isStreaming) {
+      frameCountRef.current = 0;
+      lastFpsUpdateRef.current = performance.now();
+      requestAnimationFrame(countFrames);
+    }
+    
+    return () => {
+      frameCountRef.current = 0;
+    };
+  }, [isStreaming, countFrames]);
+
+  // Main detection function - simplified for reliability
   const detectObjects = useCallback(async () => {
     // Skip if detection is already running or prerequisites not met
     if (detectionRunningRef.current || !isStreaming || !videoRef.current || !modelRef.current) {
@@ -158,136 +194,107 @@ const WebcamComponent: React.FC = () => {
       return;
     }
     
-    // Update FPS counter
-    fpsCountRef.current++;
     const now = performance.now();
-    if (now - lastFpsUpdateRef.current >= 1000) {
-      setFps(fpsCountRef.current);
-      fpsCountRef.current = 0;
-      lastFpsUpdateRef.current = now;
-    }
     
     // Throttle detection frequency
     if (now - lastDetectionTimeRef.current < detectionIntervalRef.current) {
-      // Not enough time has passed since last detection
       requestRef.current = requestAnimationFrame(detectObjects);
       return;
     }
     
-    // Update last detection time
     lastDetectionTimeRef.current = now;
     detectionRunningRef.current = true;
     
     try {
-      // Make sure the video is ready
-      if (videoRef.current.readyState < 2) {
+      // Basic checks for video readiness
+      if (!videoRef.current || !videoRef.current.videoWidth || !videoRef.current.videoHeight) {
         detectionRunningRef.current = false;
         requestRef.current = requestAnimationFrame(detectObjects);
         return;
       }
       
-      // Ensure TensorFlow backend is ready
-      if (!tf.getBackend()) {
-        await tf.setBackend('webgl');
-        await tf.ready();
+      // Simplified detection approach
+      try {
+        // Wrapped in try/catch for better error handling
+        const predictions = await modelRef.current.detect(videoRef.current, 3, 0.6);
+        
+        // Process results if detection was successful
+        const allDetectedItems = processDetections(predictions);
+        
+        // Separate objects into categories
+        const notTrashItems = allDetectedItems.filter(obj => isNotTrash(obj.class));
+        const trashItems = allDetectedItems.filter(obj => !isNotTrash(obj.class));
+        const recyclableItems = trashItems.filter(obj => isRecyclable(obj.class));
+        
+        // Update state
+        setDetectedObjects(trashItems);
+        setRecycleDetected(recyclableItems.length > 0);
+        setErrorCount(0);
+        
+        // Set appropriate status message
+        if (notTrashItems.length > 0) {
+          setDetectionStatus(`Detected: ${notTrashItems.map(item => item.class).join(', ')} (not trash)`);
+        } else if (recyclableItems.length > 0) {
+          setDetectionStatus(`Recyclable items detected: ${recyclableItems.map(item => item.class).join(', ')}!`);
+        } else if (trashItems.length === 0) {
+          setDetectionStatus('No objects detected');
+        } else {
+          setDetectionStatus(`Non-recyclable items detected: ${trashItems.map(item => item.class).join(', ')}`);
+        }
+        
+        // Draw detections if any were found
+        if (allDetectedItems.length > 0) {
+          drawDetections(trashItems, allDetectedItems);
+        }
+      } catch (detectionError) {
+        console.error('Detection specific error:', detectionError);
+        setErrorCount(prev => prev + 1);
+        
+        // Simpler error handling
+        if (errorCount < 3) {
+          setDetectionStatus('Detection error, retrying...');
+        } else {
+          // Try to recover by forcing model reload if errors persist
+          setDetectionStatus('Detection errors occurring. Trying to recover...');
+          
+          // Attempt to reload model if too many errors
+          if (errorCount >= 5) {
+            modelRef.current = null;
+            setModelLoaded(false);
+            setDetectionStatus('Reloading model due to errors...');
+            
+            // Force reload the model
+            setTimeout(() => {
+              window.location.reload();
+            }, 2000);
+            
+            detectionRunningRef.current = false;
+            return;
+          }
+        }
       }
       
-      // Use tidy to automatically clean up tensors
-      tf.tidy(() => {
-        // Run detection on current video frame with optimized parameters
-        modelRef.current!.detect(videoRef.current!, 5, 0.5).then(predictions => {
-          // Process all detected objects
-          const allDetectedItems = processDetections(predictions);
-          
-          // Check for not-trash items (like humans)
-          const notTrashItems = allDetectedItems.filter(obj => isNotTrash(obj.class));
-          const hasNotTrashItems = notTrashItems.length > 0;
-
-          // Filter out "not trash" items from trash detection
-          const trashItems = allDetectedItems.filter(obj => !isNotTrash(obj.class));
-          
-          // Only update detected objects with items that are classified as trash
-          setDetectedObjects(trashItems);
-          
-          // Check for recyclable items only among trash items
-          const recyclableItems = trashItems.filter(obj => isRecyclable(obj.class));
-          
-          // Update recyclable detection state
-          setRecycleDetected(recyclableItems.length > 0);
-          
-          // Update status messages
-          if (hasNotTrashItems) {
-            const notTrashNames = notTrashItems.map(item => item.class).join(', ');
-            
-            if (recyclableItems.length > 0) {
-              // Both not-trash and recyclable items detected
-              setDetectionStatus(`Detected: ${notTrashNames} (not trash) and recyclable items: ${recyclableItems.map(item => item.class).join(', ')}`);
-            } else if (trashItems.length > 0) {
-              // Not-trash and non-recyclable trash detected
-              setDetectionStatus(`Detected: ${notTrashNames} (not trash) and non-recyclable items`);
-            } else {
-              // Only not-trash items detected
-              setDetectionStatus(`Detected: ${notTrashNames} (not trash)`);
-            }
-          } else if (recyclableItems.length > 0) {
-            // Only recyclable items detected
-            setDetectionStatus(`Recyclable items detected: ${recyclableItems.map(item => item.class).join(', ')}!`);
-          } else if (trashItems.length === 0) {
-            // No objects detected at all
-            setDetectionStatus('No objects detected');
-          } else {
-            // Only non-recyclable trash detected
-            setDetectionStatus(`No recyclable items found among ${trashItems.length} detected object(s)`);
-          }
-          
-          // Draw detection boxes for all objects (including not-trash)
-          drawDetections(trashItems, allDetectedItems);
-          
-          // Periodically clean up memory
-          if (fpsCountRef.current % 30 === 0) {
-            tf.engine().endScope();
-            tf.engine().startScope();
-          }
-          
-          // Continue detection loop
-          detectionRunningRef.current = false;
-          if (isStreaming) {
-            requestRef.current = requestAnimationFrame(detectObjects);
-          }
-        }).catch(error => {
-          console.error('Detection error:', error);
-          setErrorCount(prev => prev + 1);
-          
-          // Handle errors
-          setDetectionStatus(errorCount < 3 ? 'Detection error, retrying...' : 'Detection error occurred');
-          detectionRunningRef.current = false;
-          
-          // Retry with increasing delay if not too many errors
-          if (errorCount < 5 && isStreaming) {
-            setTimeout(() => {
-              if (isStreaming) {
-                requestRef.current = requestAnimationFrame(detectObjects);
-              }
-            }, errorCount * 100); // Shorter delay for faster recovery
-          }
-        });
-      });
+      // Continue detection loop
+      detectionRunningRef.current = false;
+      if (isStreaming) {
+        requestRef.current = requestAnimationFrame(detectObjects);
+      }
     } catch (error) {
-      console.error('Detection error:', error);
+      console.error('Detection outer error:', error);
       detectionRunningRef.current = false;
       
-      // Continue despite errors for more fluid experience
+      // Continue despite errors
       if (isStreaming) {
         requestRef.current = requestAnimationFrame(detectObjects);
       }
     }
-  }, [isStreaming, modelLoaded, errorCount]);
+  }, [isStreaming, modelLoaded, errorCount, isNotTrash, isRecyclable]);
 
   // Draw detection boxes on canvas
   const drawDetections = (objects: DetectedObject[], allPredictions: DetectedObject[] = []) => {
     if (!canvasRef.current || !videoRef.current) return;
 
-    const ctx = canvasRef.current.getContext('2d', { alpha: false });
+    const ctx = canvasRef.current.getContext('2d', { alpha: true }); // Use alpha for transparency
     if (!ctx) return;
     
     try {
@@ -321,7 +328,7 @@ const WebcamComponent: React.FC = () => {
       const offsetX = (displayWidth - videoWidth * scale) / 2;
       const offsetY = (displayHeight - videoHeight * scale) / 2;
       
-      // Clear previous drawings
+      // Clear previous drawings - use clearRect to ensure transparency
       ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       
       // Combine all objects to draw them in one pass
@@ -346,7 +353,7 @@ const WebcamComponent: React.FC = () => {
   ) => {
     if (!canvasRef.current || !videoRef.current) return;
 
-    const ctx = canvasRef.current.getContext('2d', { alpha: false });
+    const ctx = canvasRef.current.getContext('2d', { alpha: true }); // Use alpha for transparency
     if (!ctx) return;
     
     // Prepare all coordinates first
@@ -477,20 +484,19 @@ const WebcamComponent: React.FC = () => {
     };
   }, []);
 
-  // Adjust detection interval based on device performance
+  // Adjust detection interval - use more conservative values
   useEffect(() => {
     if (isStreaming && modelLoaded) {
-      // Check if we're on a mobile device
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       
-      // Set different intervals based on device type - increase speeds for all devices
+      // Set very conservative detection rates to ensure stability
       if (isMobile) {
-        detectionIntervalRef.current = 100; // ~10 fps on mobile
+        detectionIntervalRef.current = 300; // ~3 fps on mobile - slower but more stable
       } else {
-        detectionIntervalRef.current = 50; // ~20 fps on desktop
+        detectionIntervalRef.current = 150; // ~6 fps on desktop - slower but more stable
       }
       
-      console.log(`Detection interval set to ${detectionIntervalRef.current}ms`);
+      console.log(`Detection interval set to ${detectionIntervalRef.current}ms for stability`);
     }
   }, [isStreaming, modelLoaded]);
 
@@ -499,11 +505,18 @@ const WebcamComponent: React.FC = () => {
     try {
       setDetectionStatus('Starting camera...');
       
+      // Reset any previous video state
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+      
       // Get device constraints that work well on mobile and desktop
       const constraints = {
         video: { 
-          width: { ideal: 640 }, // Lower resolution for faster processing
-          height: { ideal: 480 },
+          width: { ideal: 1280 }, // Higher resolution for better visibility
+          height: { ideal: 720 },
           facingMode: 'environment', // Use back camera on mobile when available
           frameRate: { ideal: 30 } // Request higher frame rate
         }
@@ -513,19 +526,57 @@ const WebcamComponent: React.FC = () => {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       if (videoRef.current) {
+        // Set video attributes explicitly
+        videoRef.current.width = 1280;
+        videoRef.current.height = 720;
+        videoRef.current.autoplay = true;
+        videoRef.current.playsInline = true;
+        videoRef.current.muted = true;
+        
+        // Ensure video element is visible
+        videoRef.current.style.display = 'block';
+        videoRef.current.style.opacity = '1';
+        
+        // Set stream
         videoRef.current.srcObject = stream;
+        
+        // Ensure video plays on iOS
+        videoRef.current.setAttribute('playsinline', 'true');
         
         // Wait for video to be ready before setting streaming state
         videoRef.current.onloadedmetadata = () => {
           if (videoRef.current) {
-            videoRef.current.play();
-            setIsStreaming(true);
-            setDetectedObjects([]);
+            // Force play the video
+            const playPromise = videoRef.current.play();
             
-            // Update canvas dimensions once video is loaded
-            if (canvasRef.current) {
-              canvasRef.current.width = canvasRef.current.clientWidth;
-              canvasRef.current.height = canvasRef.current.clientHeight;
+            // Handle play promise to avoid uncaught promise errors
+            if (playPromise !== undefined) {
+              playPromise.then(() => {
+                console.log('Video is playing successfully');
+                
+                // Ensure the video is visible
+                if (videoRef.current) {
+                  videoRef.current.style.display = 'block';
+                  videoRef.current.style.opacity = '1';
+                }
+                
+                setIsStreaming(true);
+                setDetectedObjects([]);
+                
+                // Update canvas dimensions once video is loaded
+                if (canvasRef.current) {
+                  canvasRef.current.width = canvasRef.current.clientWidth;
+                  canvasRef.current.height = canvasRef.current.clientHeight;
+                  // Ensure canvas is transparent
+                  const ctx = canvasRef.current.getContext('2d', { alpha: true });
+                  if (ctx) {
+                    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                  }
+                }
+              }).catch(error => {
+                console.error('Error playing video:', error);
+                setDetectionStatus('Error starting video stream. Please try again.');
+              });
             }
           }
         };
@@ -546,10 +597,18 @@ const WebcamComponent: React.FC = () => {
       
       // Reset state
       videoRef.current.srcObject = null;
+      
+      // Clear canvas
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d', { alpha: true });
+        if (ctx) {
+          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        }
+      }
+      
       setIsStreaming(false);
       setDetectionStatus('Webcam stopped');
       setDetectedObjects([]);
-      clearCanvas();
       
       // Reset error count and detection states
       setErrorCount(0);

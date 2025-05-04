@@ -108,6 +108,9 @@ body {
   height: 100%;
   object-fit: cover; /* This scales the video to cover the container */
   transform: scaleX(-1); /* Mirror effect */
+  z-index: 1; /* Ensure it's above the background but below the canvas */
+  opacity: 1; /* Make sure it's fully visible */
+  display: block !important; /* Force display */
 }
 
 .ios-detection-overlay {
@@ -118,6 +121,7 @@ body {
   height: 100%;
   z-index: 5;
   pointer-events: none; /* Allow clicking through the canvas */
+  background-color: transparent !important; /* Force transparent background */
 }
 
 .ios-camera-placeholder {
