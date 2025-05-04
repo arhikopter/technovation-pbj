@@ -44,47 +44,44 @@ const WebcamComponent: React.FC = () => {
   const requestRef = useRef<number | null>(null);
   const [errorCount, setErrorCount] = useState(0);
   const detectionRunningRef = useRef(false);
-  
-  // State variables for micro:bit
-  const [microbitConnected, setMicrobitConnected] = useState(false);
-  const [microbitConnecting, setMicrobitConnecting] = useState(false);
-  const [microbitButtonA, setMicrobitButtonA] = useState(false);
-  const [microbitButtonB, setMicrobitButtonB] = useState(false);
-  const [microbitConnectionStatus, setMicrobitConnectionStatus] = useState('Disconnected');
-  
-  // useRef for micro:bit device and services
-  const microbitDeviceRef = useRef<BluetoothDevice | null>(null);
-  const microbitServicesRef = useRef<Record<string, any>>({});
-  const microbitGattServerRef = useRef<BluetoothRemoteGATTServer | null>(null);
-  
-  // No throttling for important state changes
-  const lastMicrobitUpdateRef = useRef<number>(0);
-  const microbitUpdateIntervalMs = 100; // 100ms between updates (reduced from 500ms)
+  const [showDetailsPanel, setShowDetailsPanel] = useState(false);
+  const lastDetectionTimeRef = useRef<number>(0);
+  const detectionIntervalRef = useRef<number>(150); // Throttle to run ~6-7 times per second
+
+  // Add performance monitoring
+  const fpsCountRef = useRef<number>(0);
+  const lastFpsUpdateRef = useRef<number>(0);
+  const [fps, setFps] = useState<number>(0);
 
   // Load the TensorFlow model when component mounts
   useEffect(() => {
     let mounted = true;
     
-    // Log recyclable items for debugging
-    console.log("RECYCLABLE_TRASH_ITEMS:", RECYCLABLE_TRASH_ITEMS);
-    console.log("WRAPPER_LIKE_ITEMS:", WRAPPER_LIKE_ITEMS);
-    
     async function loadModel() {
       try {
         if (mounted) setDetectionStatus('Loading model...');
         
-        // Enable debug mode for TensorFlow.js
-        tf.enableDebugMode();
+        // Enable optimizations for TensorFlow.js
         console.log('TensorFlow.js version:', tf.version.tfjs);
+        
+        // Configure TensorFlow.js for optimal performance
+        tf.ENV.set('WEBGL_DELETE_TEXTURE_THRESHOLD', 0);
+        tf.ENV.set('WEBGL_FORCE_F16_TEXTURES', true);
+        tf.ENV.set('WEBGL_CPU_FORWARD', false);
+        tf.ENV.set('WEBGL_PACK', true);
         
         // Set memory efficient backend
         await tf.setBackend('webgl');
         await tf.ready();
         console.log('Using TensorFlow backend:', tf.getBackend());
         
-        // Load the COCO-SSD model with a base model
+        // Warm up the engine to avoid initial lag
+        const dummyTensor = tf.zeros([1, 224, 224, 3]);
+        dummyTensor.dispose();
+        
+        // Load the COCO-SSD model with a faster model for real-time performance
         const model = await cocoSsd.load({
-          base: 'lite_mobilenet_v2'  // Using a lighter model that's faster
+          base: 'lite_mobilenet_v2'  // Using lighter model for better speed
         });
         
         if (!mounted) return;
@@ -92,8 +89,19 @@ const WebcamComponent: React.FC = () => {
         modelRef.current = model;
         console.log('Model loaded successfully');
         
+        // Run garbage collection
+        try {
+          // @ts-ignore
+          if (window.gc) {
+            // @ts-ignore
+            window.gc();
+          }
+        } catch (e) {
+          console.log('GC not available');
+        }
+        
         setModelLoaded(true);
-        setDetectionStatus('Model loaded. Click Start to begin.');
+        setDetectionStatus('Model loaded. Ready to start.');
       } catch (error) {
         console.error('Failed to load model:', error);
         if (mounted) {
@@ -110,274 +118,8 @@ const WebcamComponent: React.FC = () => {
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
       }
-      
-      // Disconnect from micro:bit if connected
-      if (microbitGattServerRef.current && microbitConnected) {
-        microbitGattServerRef.current.disconnect();
-      }
     };
   }, []);
-
-  // Connect to micro:bit
-  const connectToMicrobit = async () => {
-    setMicrobitConnectionStatus('Connecting...');
-    setMicrobitConnecting(true);
-
-    try {
-      if (!navigator.bluetooth) {
-        console.error('Web Bluetooth API is not available in this browser');
-        setMicrobitConnectionStatus('Bluetooth not supported');
-        setMicrobitConnecting(false);
-        return;
-      }
-
-      console.log('Requesting micro:bit device...');
-      
-      // Request a micro:bit device directly from the browser's Bluetooth API
-      const device = await navigator.bluetooth.requestDevice({
-        filters: [{ namePrefix: 'BBC micro:bit' }],
-        optionalServices: [
-          '0000180a-0000-1000-8000-00805f9b34fb', // Device Information Service
-          'e95dd91d-251d-470a-a062-fa1922dfa9a8', // LED Service
-          'e95d9882-251d-470a-a062-fa1922dfa9a8', // Button Service
-          'e95d6100-251d-470a-a062-fa1922dfa9a8'  // Temperature Service
-        ]
-      });
-      
-      microbitDeviceRef.current = device;
-      
-      console.log('Connecting to GATT server...');
-      const server = await device.gatt?.connect();
-      microbitGattServerRef.current = server || null;
-      
-      // Store services
-      const services: Record<string, any> = {};
-      
-      // Button Service
-      try {
-        if (server) {
-          const buttonService = await server.getPrimaryService('e95d9882-251d-470a-a062-fa1922dfa9a8');
-          const buttonACharacteristic = await buttonService.getCharacteristic('e95dda90-251d-470a-a062-fa1922dfa9a8');
-          const buttonBCharacteristic = await buttonService.getCharacteristic('e95dda91-251d-470a-a062-fa1922dfa9a8');
-          
-          // Start notifications for button A
-          await buttonACharacteristic.startNotifications();
-          buttonACharacteristic.addEventListener('characteristicvaluechanged', (event: Event) => {
-            const target = event.target as BluetoothRemoteGATTCharacteristic;
-            const value = target.value;
-            if (value) {
-              const pressed = value.getUint8(0) === 1;
-              console.log(`Button A ${pressed ? 'pressed' : 'released'}`);
-              setMicrobitButtonA(pressed);
-              
-              // Toggle webcam streaming when button A is pressed
-              if (pressed) {
-                setIsStreaming(prevState => !prevState);
-              }
-            }
-          });
-          
-          // Start notifications for button B
-          await buttonBCharacteristic.startNotifications();
-          buttonBCharacteristic.addEventListener('characteristicvaluechanged', (event: Event) => {
-            const target = event.target as BluetoothRemoteGATTCharacteristic;
-            const value = target.value;
-            if (value) {
-              const pressed = value.getUint8(0) === 1;
-              console.log(`Button B ${pressed ? 'pressed' : 'released'}`);
-              setMicrobitButtonB(pressed);
-              
-              // Toggle detection when button B is pressed
-              if (pressed) {
-                // Toggle streaming as well
-                setIsStreaming(prevState => !prevState);
-              }
-            }
-          });
-          
-          // Store the service
-          services.buttonService = buttonService;
-        }
-      } catch (buttonError) {
-        console.error('Error setting up button service:', buttonError);
-      }
-      
-      // LED Service
-      try {
-        if (server) {
-          const ledService = await server.getPrimaryService('e95dd91d-251d-470a-a062-fa1922dfa9a8');
-          const ledMatrixStateCharacteristic = await ledService.getCharacteristic('e95d7b77-251d-470a-a062-fa1922dfa9a8');
-          const ledTextCharacteristic = await ledService.getCharacteristic('e95d93ee-251d-470a-a062-fa1922dfa9a8');
-          
-          // Create a function to write text to the LED display
-          const writeText = async (text: string) => {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(text);
-            await ledTextCharacteristic.writeValue(data);
-          };
-          
-          // Create a function to write a pattern to the LED display
-          const writeMatrixState = async (pattern: boolean[][]) => {
-            const byteArray = new Uint8Array(5);
-            for (let i = 0; i < 5; i++) {
-              let byte = 0;
-              for (let j = 0; j < 5; j++) {
-                if (pattern[i][j]) {
-                  byte |= 1 << j;
-                }
-              }
-              byteArray[i] = byte;
-            }
-            await ledMatrixStateCharacteristic.writeValue(byteArray);
-          };
-          
-          // Store the service with functions
-          services.ledService = {
-            writeText,
-            writeMatrixState
-          };
-          
-          // Display a welcome pattern instead of text
-          // Show a smile pattern
-          const smilePattern = [
-            [false, false, false, false, false],
-            [false, true, false, true, false],
-            [false, false, false, false, false],
-            [true, false, false, false, true],
-            [false, true, true, true, false]
-          ];
-          await writeMatrixState(smilePattern);
-          
-          // We don't need the setTimeout for text now since we're showing the pattern immediately
-        }
-      } catch (ledError) {
-        console.error('Error setting up LED service:', ledError);
-      }
-      
-      // Store all services
-      microbitServicesRef.current = services;
-      
-      // Device disconnect event handler
-      device.addEventListener('gattserverdisconnected', () => {
-        console.log('micro:bit disconnected');
-        setMicrobitConnected(false);
-        setMicrobitButtonA(false);
-        setMicrobitButtonB(false);
-        setMicrobitConnectionStatus('Disconnected');
-      });
-      
-      setMicrobitConnected(true);
-      setMicrobitConnectionStatus('Connected');
-      console.log('Successfully connected to micro:bit');
-      
-    } catch (error) {
-      console.error('Failed to connect to micro:bit:', error);
-      setMicrobitConnectionStatus('Connection failed');
-      setMicrobitConnected(false);
-    } finally {
-      setMicrobitConnecting(false);
-    }
-  };
-  
-  // Disconnect from micro:bit
-  const disconnectFromMicrobit = () => {
-    if (!microbitConnected || !microbitGattServerRef.current) return;
-    
-    try {
-      // Disconnect from GATT server
-      microbitGattServerRef.current.disconnect();
-      
-      setMicrobitConnected(false);
-      setMicrobitButtonA(false);
-      setMicrobitButtonB(false);
-      setMicrobitConnectionStatus('Disconnected');
-      console.log('Disconnected from micro:bit');
-    } catch (error) {
-      console.error('Error disconnecting from micro:bit:', error);
-    }
-  };
-
-  // Display text on micro:bit
-  const displayOnMicrobit = async (text: string) => {
-    if (!microbitConnected || !microbitServicesRef.current.ledService) return;
-    
-    // Check if we should throttle updates
-    const now = Date.now();
-    if (now - lastMicrobitUpdateRef.current < microbitUpdateIntervalMs) {
-      return; // Skip this update if not enough time has passed
-    }
-    
-    // Update the timestamp
-    lastMicrobitUpdateRef.current = now;
-    
-    try {
-      console.log(`Displaying "${text}" on micro:bit`);
-      
-      const ledService = microbitServicesRef.current.ledService;
-      if (ledService && ledService.writeText) {
-        await ledService.writeText(text);
-        console.log(`Sent "${text}" to micro:bit display`);
-      }
-    } catch (error) {
-      console.error('Error displaying text on micro:bit:', error);
-    }
-  };
-
-  // Display pattern on micro:bit for recyclable status
-  const displayRecyclablePatternOnMicrobit = async () => {
-    if (!microbitConnected || !microbitServicesRef.current.ledService) return;
-    
-    const ledService = microbitServicesRef.current.ledService;
-    if (!ledService || !ledService.writeMatrixState) return;
-    
-    try {
-      // Right arrow pattern for recyclable items
-      const rightArrowPattern = [
-        [false, false, true, false, false],
-        [false, false, false, true, false],
-        [true, true, true, true, true],
-        [false, false, false, true, false],
-        [false, false, true, false, false]
-      ];
-      
-      // Left arrow pattern for non-recyclable items
-      const leftArrowPattern = [
-        [false, false, true, false, false],
-        [false, true, false, false, false],
-        [true, true, true, true, true],
-        [false, true, false, false, false],
-        [false, false, true, false, false]
-      ];
-      
-      // Empty pattern for when no objects are detected
-      const emptyPattern = [
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false]
-      ];
-      
-      // Choose pattern based on detection state and if objects are present
-      let patternToShow;
-      
-      if (detectedObjects.length === 0) {
-        // No objects detected, show nothing
-        patternToShow = emptyPattern;
-      } else if (recycleDetected) {
-        // Recyclable objects detected, show right arrow
-        patternToShow = rightArrowPattern;
-      } else {
-        // Non-recyclable objects detected, show left arrow
-        patternToShow = leftArrowPattern;
-      }
-      
-      // Display the pattern
-      await ledService.writeMatrixState(patternToShow);
-    } catch (error) {
-      console.error('Error displaying pattern on micro:bit:', error);
-    }
-  };
 
   // Convert COCO-SSD detection results to our DetectedObject format
   const processDetections = (predictions: cocoSsd.DetectedObject[]): DetectedObject[] => {
@@ -416,6 +158,24 @@ const WebcamComponent: React.FC = () => {
       return;
     }
     
+    // Update FPS counter
+    fpsCountRef.current++;
+    const now = performance.now();
+    if (now - lastFpsUpdateRef.current >= 1000) {
+      setFps(fpsCountRef.current);
+      fpsCountRef.current = 0;
+      lastFpsUpdateRef.current = now;
+    }
+    
+    // Throttle detection frequency
+    if (now - lastDetectionTimeRef.current < detectionIntervalRef.current) {
+      // Not enough time has passed since last detection
+      requestRef.current = requestAnimationFrame(detectObjects);
+      return;
+    }
+    
+    // Update last detection time
+    lastDetectionTimeRef.current = now;
     detectionRunningRef.current = true;
     
     try {
@@ -432,88 +192,102 @@ const WebcamComponent: React.FC = () => {
         await tf.ready();
       }
       
-      // Run detection on current video frame
-      const predictions = await modelRef.current.detect(videoRef.current, undefined, 0.5);
-      
-      // Reset error count on successful detection
-      if (errorCount > 0) setErrorCount(0);
-      
-      // Process all detected objects
-      const allDetectedItems = processDetections(predictions);
-      
-      // Check for not-trash items (like humans)
-      const notTrashItems = allDetectedItems.filter(obj => isNotTrash(obj.class));
-      const hasNotTrashItems = notTrashItems.length > 0;
+      // Use tidy to automatically clean up tensors
+      tf.tidy(() => {
+        // Run detection on current video frame with optimized parameters
+        modelRef.current!.detect(videoRef.current!, 5, 0.5).then(predictions => {
+          // Process all detected objects
+          const allDetectedItems = processDetections(predictions);
+          
+          // Check for not-trash items (like humans)
+          const notTrashItems = allDetectedItems.filter(obj => isNotTrash(obj.class));
+          const hasNotTrashItems = notTrashItems.length > 0;
 
-      // Filter out "not trash" items from trash detection
-      const trashItems = allDetectedItems.filter(obj => !isNotTrash(obj.class));
-      
-      // Only update detected objects with items that are classified as trash
-      setDetectedObjects(trashItems);
-      
-      // Check for recyclable items only among trash items
-      const recyclableItems = trashItems.filter(obj => isRecyclable(obj.class));
-      
-      // Update recyclable detection state
-      setRecycleDetected(recyclableItems.length > 0);
-      
-      // Update status messages
-      if (hasNotTrashItems) {
-        const notTrashNames = notTrashItems.map(item => item.class).join(', ');
-        
-        if (recyclableItems.length > 0) {
-          // Both not-trash and recyclable items detected
-          setDetectionStatus(`Detected: ${notTrashNames} (not trash) and recyclable items: ${recyclableItems.map(item => item.class).join(', ')}`);
-        } else if (trashItems.length > 0) {
-          // Not-trash and non-recyclable trash detected
-          setDetectionStatus(`Detected: ${notTrashNames} (not trash) and non-recyclable items`);
-        } else {
-          // Only not-trash items detected
-          setDetectionStatus(`Detected: ${notTrashNames} (not trash)`);
-        }
-      } else if (recyclableItems.length > 0) {
-        // Only recyclable items detected
-        setDetectionStatus(`Recyclable items detected: ${recyclableItems.map(item => item.class).join(', ')}!`);
-      } else if (trashItems.length === 0) {
-        // No objects detected at all
-        setDetectionStatus('No objects detected');
-      } else {
-        // Only non-recyclable trash detected
-        setDetectionStatus(`No recyclable items found among ${trashItems.length} detected object(s)`);
-      }
-      
-      // Draw detection boxes for all objects (including not-trash)
-      drawDetections(trashItems);
-      
-      // Continue detection loop
-      detectionRunningRef.current = false;
-      if (isStreaming) {
-        requestRef.current = requestAnimationFrame(detectObjects);
-      }
-    } catch (error) {
-      console.error('Detection error:', error);
-      setErrorCount(prev => prev + 1);
-      
-      // Handle errors
-      setDetectionStatus(errorCount < 3 ? 'Detection error, retrying...' : 'Detection error occurred');
-      detectionRunningRef.current = false;
-      
-      // Retry with increasing delay if not too many errors
-      if (errorCount < 5 && isStreaming) {
-        setTimeout(() => {
+          // Filter out "not trash" items from trash detection
+          const trashItems = allDetectedItems.filter(obj => !isNotTrash(obj.class));
+          
+          // Only update detected objects with items that are classified as trash
+          setDetectedObjects(trashItems);
+          
+          // Check for recyclable items only among trash items
+          const recyclableItems = trashItems.filter(obj => isRecyclable(obj.class));
+          
+          // Update recyclable detection state
+          setRecycleDetected(recyclableItems.length > 0);
+          
+          // Update status messages
+          if (hasNotTrashItems) {
+            const notTrashNames = notTrashItems.map(item => item.class).join(', ');
+            
+            if (recyclableItems.length > 0) {
+              // Both not-trash and recyclable items detected
+              setDetectionStatus(`Detected: ${notTrashNames} (not trash) and recyclable items: ${recyclableItems.map(item => item.class).join(', ')}`);
+            } else if (trashItems.length > 0) {
+              // Not-trash and non-recyclable trash detected
+              setDetectionStatus(`Detected: ${notTrashNames} (not trash) and non-recyclable items`);
+            } else {
+              // Only not-trash items detected
+              setDetectionStatus(`Detected: ${notTrashNames} (not trash)`);
+            }
+          } else if (recyclableItems.length > 0) {
+            // Only recyclable items detected
+            setDetectionStatus(`Recyclable items detected: ${recyclableItems.map(item => item.class).join(', ')}!`);
+          } else if (trashItems.length === 0) {
+            // No objects detected at all
+            setDetectionStatus('No objects detected');
+          } else {
+            // Only non-recyclable trash detected
+            setDetectionStatus(`No recyclable items found among ${trashItems.length} detected object(s)`);
+          }
+          
+          // Draw detection boxes for all objects (including not-trash)
+          drawDetections(trashItems, allDetectedItems);
+          
+          // Periodically clean up memory
+          if (fpsCountRef.current % 30 === 0) {
+            tf.engine().endScope();
+            tf.engine().startScope();
+          }
+          
+          // Continue detection loop
+          detectionRunningRef.current = false;
           if (isStreaming) {
             requestRef.current = requestAnimationFrame(detectObjects);
           }
-        }, errorCount * 500);
+        }).catch(error => {
+          console.error('Detection error:', error);
+          setErrorCount(prev => prev + 1);
+          
+          // Handle errors
+          setDetectionStatus(errorCount < 3 ? 'Detection error, retrying...' : 'Detection error occurred');
+          detectionRunningRef.current = false;
+          
+          // Retry with increasing delay if not too many errors
+          if (errorCount < 5 && isStreaming) {
+            setTimeout(() => {
+              if (isStreaming) {
+                requestRef.current = requestAnimationFrame(detectObjects);
+              }
+            }, errorCount * 100); // Shorter delay for faster recovery
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Detection error:', error);
+      detectionRunningRef.current = false;
+      
+      // Continue despite errors for more fluid experience
+      if (isStreaming) {
+        requestRef.current = requestAnimationFrame(detectObjects);
       }
     }
   }, [isStreaming, modelLoaded, errorCount]);
 
   // Draw detection boxes on canvas
-  const drawDetections = (objects: DetectedObject[]) => {
+  const drawDetections = (objects: DetectedObject[], allPredictions: DetectedObject[] = []) => {
     if (!canvasRef.current || !videoRef.current) return;
 
-    const ctx = canvasRef.current.getContext('2d');
+    const ctx = canvasRef.current.getContext('2d', { alpha: false });
     if (!ctx) return;
     
     try {
@@ -521,116 +295,124 @@ const WebcamComponent: React.FC = () => {
       const videoWidth = videoRef.current.videoWidth;
       const videoHeight = videoRef.current.videoHeight;
       
-      // Set canvas dimensions
-      canvasRef.current.width = videoWidth || 640;
-      canvasRef.current.height = videoHeight || 480;
+      // Get display dimensions (canvas/container size)
+      const displayWidth = canvasRef.current.clientWidth;
+      const displayHeight = canvasRef.current.clientHeight;
+      
+      // Skip if dimensions are invalid
+      if (displayWidth === 0 || displayHeight === 0 || videoWidth === 0 || videoHeight === 0) {
+        return;
+      }
+      
+      // Set canvas dimensions to match display area (only if needed)
+      if (canvasRef.current.width !== displayWidth || canvasRef.current.height !== displayHeight) {
+        canvasRef.current.width = displayWidth;
+        canvasRef.current.height = displayHeight;
+      }
+      
+      // Calculate scaling factors
+      const scaleX = displayWidth / videoWidth;
+      const scaleY = displayHeight / videoHeight;
+      
+      // For object-fit: cover, we use the larger scale factor
+      const scale = Math.max(scaleX, scaleY);
+      
+      // Calculate offset to center the video
+      const offsetX = (displayWidth - videoWidth * scale) / 2;
+      const offsetY = (displayHeight - videoHeight * scale) / 2;
       
       // Clear previous drawings
       ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       
-      // Draw trash objects with normal colors
-      drawObjectsOnCanvas(objects);
+      // Combine all objects to draw them in one pass
+      const allObjects = [
+        ...objects.map(obj => ({ ...obj, isTrash: true })),
+        ...allPredictions.filter(obj => isNotTrash(obj.class)).map(obj => ({ ...obj, isTrash: false }))
+      ];
       
-      // Find any "not trash" objects and draw them separately
-      if (videoRef.current && modelRef.current) {
-        modelRef.current.detect(videoRef.current, undefined, 0.5).then(predictions => {
-          const notTrashObjects = processDetections(
-            predictions.filter(pred => isNotTrash(pred.class))
-          );
-          
-          // Draw not-trash objects (like humans) with blue color
-          if (notTrashObjects.length > 0) {
-            drawObjectsOnCanvas(notTrashObjects, 'blue', 'Not Trash');
-          }
-        }).catch(err => {
-          console.error('Error detecting not-trash objects:', err);
-        });
-      }
+      // Draw all objects in one go for better performance
+      drawObjectsOnCanvas(allObjects, scale, offsetX, offsetY);
     } catch (error) {
       console.error('Error drawing detections:', error);
     }
   };
   
   // Helper function to draw objects on canvas with specified color and label
-  const drawObjectsOnCanvas = (objects: DetectedObject[], defaultColor?: string, labelPrefix?: string) => {
+  const drawObjectsOnCanvas = (
+    objects: (DetectedObject & { isTrash?: boolean })[], 
+    scale: number = 1,
+    offsetX: number = 0,
+    offsetY: number = 0
+  ) => {
     if (!canvasRef.current || !videoRef.current) return;
 
-    const ctx = canvasRef.current.getContext('2d');
+    const ctx = canvasRef.current.getContext('2d', { alpha: false });
     if (!ctx) return;
     
-    // Get video dimensions
-    const videoWidth = videoRef.current.videoWidth;
-    const videoHeight = videoRef.current.videoHeight;
-    
-    // Save the transformed coordinates for label drawing after restoring context
-    const objectsWithScreenCoords = objects.map(obj => {
+    // Prepare all coordinates first
+    const objectsWithCoords = objects.map(obj => {
+      // Apply scaling to coordinates and dimensions
+      const scaledX = obj.x * scale + offsetX;
+      const scaledY = obj.y * scale + offsetY;
+      const scaledWidth = obj.width * scale;
+      const scaledHeight = obj.height * scale;
+      
       // Calculate the mirrored x-coordinate for the box
-      const mirroredX = videoWidth - obj.x - obj.width;
+      const mirroredX = canvasRef.current!.width - scaledX - scaledWidth;
       
-      return {
-        ...obj,
-        screenX: mirroredX, // Store the screen coordinates
-        screenY: obj.y
-      };
-    });
-    
-    // First draw the bounding boxes with mirrored coordinates
-    ctx.save();
-    
-    // Handle mirrored video - flip the context horizontally
-    ctx.scale(-1, 1);
-    ctx.translate(-canvasRef.current.width, 0);
-    
-    // Draw only the bounding boxes in the mirrored context
-    objects.forEach(obj => {
-      // Choose color based on object class or use provided default
+      // Determine color based on object type
       let color;
-      if (defaultColor) {
-        color = defaultColor;
+      if (!obj.isTrash) {
+        color = '#8E8E93'; // Not trash
+      } else if (isRecyclable(obj.class)) {
+        color = '#34C759'; // Recyclable
       } else {
-        color = isRecyclable(obj.class) ? 'lime' : 'red';
-      }
-      
-      // Draw bounding box (flipped)
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 4;
-      ctx.strokeRect(obj.x, obj.y, obj.width, obj.height);
-    });
-    
-    // Restore context to normal (unflipped) state
-    ctx.restore();
-    
-    // Now draw the labels in normal orientation so they're readable
-    objectsWithScreenCoords.forEach(obj => {
-      // Choose color based on classification or use provided default
-      let color;
-      if (defaultColor) {
-        color = defaultColor;
-      } else {
-        color = isRecyclable(obj.class) ? 'lime' : 'red';
+        color = '#FF3B30'; // Non-recyclable
       }
       
       // Prepare label text
-      let labelText = `${obj.class}: ${obj.confidence}%`;
+      let labelText = `${obj.class} (${obj.confidence}%)`;
       
-      // Add classification
-      if (labelPrefix) {
-        labelText = `${obj.class} (${labelPrefix}): ${obj.confidence}%`;
-      } else if (isRecyclable(obj.class)) {
-        labelText = `${obj.class} (Recyclable): ${obj.confidence}%`;
-      } else {
-        labelText = `${obj.class} (Non-Recyclable): ${obj.confidence}%`;
-      }
-      
-      // Draw text background in normal orientation
-      ctx.font = 'bold 16px Arial';
-      const textMetrics = ctx.measureText(labelText);
+      return {
+        ...obj,
+        scaledX: scaledX,
+        scaledY: scaledY,
+        scaledWidth: scaledWidth,
+        scaledHeight: scaledHeight,
+        screenX: mirroredX,
+        screenY: scaledY,
+        color,
+        labelText
+      };
+    });
+    
+    // Draw all bounding boxes first
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.translate(-canvasRef.current.width, 0);
+    
+    ctx.lineWidth = 2;
+    
+    // Draw all boxes in one path for better performance
+    objectsWithCoords.forEach(obj => {
+      ctx.strokeStyle = obj.color;
+      ctx.strokeRect(obj.scaledX, obj.scaledY, obj.scaledWidth, obj.scaledHeight);
+    });
+    
+    ctx.restore();
+    
+    // Draw all labels (simplified for performance)
+    ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+    
+    objectsWithCoords.forEach(obj => {
+      // Simple black background for label
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(obj.screenX, obj.screenY - 30, textMetrics.width + 10, 30);
+      const textWidth = ctx.measureText(obj.labelText).width;
+      ctx.fillRect(obj.screenX, obj.screenY - 20, textWidth + 6, 20);
       
-      // Draw label text in normal orientation
-      ctx.fillStyle = color;
-      ctx.fillText(labelText, obj.screenX + 5, obj.screenY - 10);
+      // Draw label text
+      ctx.fillStyle = obj.color;
+      ctx.fillText(obj.labelText, obj.screenX + 3, obj.screenY - 5);
     });
   };
 
@@ -673,25 +455,62 @@ const WebcamComponent: React.FC = () => {
     };
   }, [isStreaming, modelLoaded, detectObjects]);
 
-  // Update micro:bit display when recyclable detection state changes or objects appear/disappear
+  // Handle window resize to update canvas dimensions
   useEffect(() => {
-    if (microbitConnected) {
-      displayRecyclablePatternOnMicrobit();
+    const handleResize = () => {
+      if (canvasRef.current) {
+        // Update canvas dimensions when viewport changes
+        canvasRef.current.width = canvasRef.current.clientWidth;
+        canvasRef.current.height = canvasRef.current.clientHeight;
+      }
+    };
+
+    // Add resize listener
+    window.addEventListener('resize', handleResize);
+    
+    // Initial call to set dimensions
+    handleResize();
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  // Adjust detection interval based on device performance
+  useEffect(() => {
+    if (isStreaming && modelLoaded) {
+      // Check if we're on a mobile device
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      
+      // Set different intervals based on device type - increase speeds for all devices
+      if (isMobile) {
+        detectionIntervalRef.current = 100; // ~10 fps on mobile
+      } else {
+        detectionIntervalRef.current = 50; // ~20 fps on desktop
+      }
+      
+      console.log(`Detection interval set to ${detectionIntervalRef.current}ms`);
     }
-  }, [recycleDetected, microbitConnected, detectedObjects]);
+  }, [isStreaming, modelLoaded]);
 
   // Start webcam
   const startWebcam = async () => {
     try {
       setDetectionStatus('Starting camera...');
       
-      // Request camera access with preferred settings
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      // Get device constraints that work well on mobile and desktop
+      const constraints = {
         video: { 
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        } 
-      });
+          width: { ideal: 640 }, // Lower resolution for faster processing
+          height: { ideal: 480 },
+          facingMode: 'environment', // Use back camera on mobile when available
+          frameRate: { ideal: 30 } // Request higher frame rate
+        }
+      };
+      
+      // Request camera access with preferred settings
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -702,6 +521,12 @@ const WebcamComponent: React.FC = () => {
             videoRef.current.play();
             setIsStreaming(true);
             setDetectedObjects([]);
+            
+            // Update canvas dimensions once video is loaded
+            if (canvasRef.current) {
+              canvasRef.current.width = canvasRef.current.clientWidth;
+              canvasRef.current.height = canvasRef.current.clientHeight;
+            }
           }
         };
       }
@@ -732,82 +557,157 @@ const WebcamComponent: React.FC = () => {
     }
   };
 
+  // Toggle webcam
+  const toggleWebcam = () => {
+    if (isStreaming) {
+      stopWebcam();
+    } else {
+      startWebcam();
+    }
+  };
+  
+  // Toggle details panel
+  const toggleDetailsPanel = () => {
+    setShowDetailsPanel(!showDetailsPanel);
+  };
+
+  // Format detection status for display
+  const getFormattedStatus = () => {
+    if (!modelLoaded) {
+      return 'Loading AI model...';
+    }
+    
+    if (!isStreaming) {
+      return 'Ready to scan';
+    }
+    
+    const fpsDisplay = fps > 0 ? ` (${fps} FPS)` : '';
+    
+    if (detectedObjects.length === 0) {
+      return `No items detected${fpsDisplay}`;
+    }
+    
+    const recyclableCount = detectedObjects.filter(obj => isRecyclable(obj.class)).length;
+    const nonRecyclableCount = detectedObjects.length - recyclableCount;
+    
+    return recyclableCount > 0 
+      ? `Found ${recyclableCount} recyclable item${recyclableCount !== 1 ? 's' : ''}${fpsDisplay}`
+      : `Found ${nonRecyclableCount} non-recyclable item${nonRecyclableCount !== 1 ? 's' : ''}${fpsDisplay}`;
+  };
+
   return (
-    <div className="webcam-container">
-      <div className="status-icons">
-        <div className={`icon right-arrow ${detectedObjects.length > 0 && recycleDetected ? 'active' : ''}`}>
-          →
-        </div>
-        <div className={`icon left-arrow ${detectedObjects.length > 0 && !recycleDetected ? 'active' : ''}`}>
-          ←
-        </div>
-      </div>
-      <div className="video-container">
-        <video 
-          ref={videoRef} 
-          autoPlay 
-          playsInline
-          muted
-          className="webcam-video"
-        />
-        <canvas 
-          ref={canvasRef} 
-          className="detection-canvas"
-        />
-      </div>
-      <div className={`detection-status ${recycleDetected ? 'recyclable-detected' : ''}`}>
-        {detectionStatus}
-      </div>
-      <div className="microbit-connection">
-        <button 
-          onClick={microbitConnected ? disconnectFromMicrobit : connectToMicrobit}
-          disabled={microbitConnecting || (!navigator.bluetooth && !microbitConnected)}
-          className={`microbit-button ${microbitConnected ? 'disconnect-button' : 'connect-button'}`}
-        >
-          {microbitConnecting ? 'Connecting...' : (microbitConnected ? 'Disconnect micro:bit' : 'Connect micro:bit')}
-        </button>
-        <div className={`connection-status ${microbitConnected ? 'connected' : ''}`}>
-          {!navigator.bluetooth && !microbitConnected && 'Web Bluetooth not supported in this browser'}
-          {navigator.bluetooth && microbitConnected && (
-            <>
-              {microbitConnectionStatus}
-              {microbitButtonA && <span className="microbit-button-indicator buttonA">A</span>}
-              {microbitButtonB && <span className="microbit-button-indicator buttonB">B</span>}
-            </>
+    <div className="ios-container">
+      <div className="ios-app">
+        <div className="ios-camera-container">
+          <video 
+            ref={videoRef} 
+            autoPlay 
+            playsInline
+            muted
+            className="ios-camera-view"
+          />
+          <canvas 
+            ref={canvasRef} 
+            className="ios-detection-overlay"
+          />
+          
+          <div className="video-titles">
+            <div className="video-title-left">L.I.F.T</div>
+            <div className="video-title-right">Recycling Detector</div>
+          </div>
+          
+          {!isStreaming && (
+            <div className="ios-camera-placeholder">
+              <div className="ios-placeholder-content">
+                <div className="ios-camera-icon"></div>
+                <div className="ios-placeholder-text">
+                  {modelLoaded ? 'Point camera at recyclable items' : 'Loading AI...'}
+                </div>
+              </div>
+            </div>
           )}
+          
+          {isStreaming && detectedObjects.length > 0 && (
+            <div className="ios-detection-pill">
+              {recycleDetected ? (
+                <div className="ios-recyclable-pill">
+                  <span className="ios-pill-icon">♻️</span>
+                  <span className="ios-pill-text">Recyclable</span>
+                </div>
+              ) : (
+                <div className="ios-non-recyclable-pill">
+                  <span className="ios-pill-icon">🗑️</span>
+                  <span className="ios-pill-text">Non-Recyclable</span>
+                </div>
+              )}
+            </div>
+          )}
+          
+          <div className={`ios-camera-controls ${isStreaming ? 'active' : ''}`}>
+            <button 
+              className="ios-camera-button"
+              onClick={toggleWebcam}
+              disabled={!modelLoaded && !isStreaming}
+              aria-label={isStreaming ? 'Stop Camera' : 'Start Camera'}
+            >
+              <div className="ios-button-inner">
+                {isStreaming ? 
+                  <span className="ios-stop-icon"></span> : 
+                  <span className="ios-start-icon"></span>
+                }
+              </div>
+            </button>
+            
+            <button 
+              className="ios-info-button"
+              onClick={toggleDetailsPanel}
+              aria-label="Toggle Details"
+            >
+              <div className="ios-info-icon"></div>
+            </button>
+          </div>
         </div>
-      </div>
-      {detectedObjects.length > 0 && (
-        <div className="detected-objects">
-          <h3>Detected Objects:</h3>
-          <ul>
-            {detectedObjects.map((obj, index) => (
-              <li 
-                key={index} 
-                className={isRecyclable(obj.class) ? 'recyclable-object' : 'non-recyclable-object'}
+        
+        <div className="ios-status-display">
+          <div className="ios-status-text">
+            {getFormattedStatus()}
+          </div>
+        </div>
+        
+        {showDetailsPanel && (
+          <div className="ios-detail-panel">
+            <div className="ios-panel-header">
+              <h3>Detection Details</h3>
+              <button 
+                className="ios-close-button"
+                onClick={toggleDetailsPanel}
+                aria-label="Close Details"
               >
-                {obj.class}: {obj.confidence}% confidence
-                {isRecyclable(obj.class) ? ' (RECYCLABLE)' : ' (NON-RECYCLABLE)'}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <div className="button-container">
-        <button 
-          onClick={startWebcam}
-          disabled={isStreaming || !modelLoaded}
-          className="webcam-button start-button"
-        >
-          Start
-        </button>
-        <button 
-          onClick={stopWebcam}
-          disabled={!isStreaming}
-          className="webcam-button stop-button"
-        >
-          Stop
-        </button>
+                <span className="ios-close-icon">×</span>
+              </button>
+            </div>
+            <div className="ios-panel-content">
+              <div className="ios-detail-status">{detectionStatus}</div>
+              
+              {detectedObjects.length > 0 && (
+                <div className="ios-object-list">
+                  <h4>Detected Items</h4>
+                  <ul>
+                    {detectedObjects.map((obj, idx) => (
+                      <li key={idx} className={isRecyclable(obj.class) ? 'recyclable' : 'non-recyclable'}>
+                        <div className="ios-object-name">{obj.class}</div>
+                        <div className="ios-object-confidence">{obj.confidence}%</div>
+                        <div className="ios-object-status">
+                          {isRecyclable(obj.class) ? 'Recyclable' : 'Non-Recyclable'}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

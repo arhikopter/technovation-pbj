@@ -1,360 +1,657 @@
-.webcam-container {
+/* iOS-inspired Design System */
+
+/* Base resets and fonts */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  touch-action: none;
+}
+
+:root {
+  /* iOS System Colors */
+  --ios-blue: #007AFF;
+  --ios-green: #34C759;
+  --ios-red: #FF3B30;
+  --ios-gray: #8E8E93;
+  --ios-gray2: #AEAEB2;
+  --ios-gray3: #C7C7CC;
+  --ios-gray4: #D1D1D6;
+  --ios-gray5: #E5E5EA;
+  --ios-gray6: #FFFFFF;
+  
+  /* iOS UI Elements - SOLID WHITE BACKGROUNDS */
+  --ios-background: #FFFFFF;
+  --ios-card-background: #FFFFFF;
+  --ios-blur-background: #FFFFFF;
+  
+  /* Shadows */
+  --ios-shadow-sm: none;
+  --ios-shadow-md: none;
+  --ios-shadow-lg: none;
+  
+  /* Border Radius */
+  --ios-radius-sm: 6px;
+  --ios-radius-md: 12px;
+  --ios-radius-lg: 18px;
+  --ios-radius-xl: 24px;
+  --ios-radius-button: 50px;
+}
+
+/* Base Container */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  background-color: #FFFFFF;
+  color: #000000;
+  font-size: 16px;
+  line-height: 1.5;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.ios-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  margin: 0;
+  background: #FFFFFF;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Main App Content */
+.ios-app {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  padding: 0;
+  background-color: #FFFFFF;
+  width: 100%;
+  height: 100%;
+}
+
+/* Camera Container - Keep black for camera view only */
+.ios-camera-container {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  box-shadow: none;
+  background-color: #000; /* Keep black for camera background */
+  border: 0; /* Remove border to maximize screen space */
+}
+
+.ios-camera-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* This scales the video to cover the container */
+  transform: scaleX(-1); /* Mirror effect */
+}
+
+.ios-detection-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  pointer-events: none; /* Allow clicking through the canvas */
+}
+
+.ios-camera-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #000000; /* Changed from rgba to solid black */
+  z-index: 10;
+}
+
+.ios-placeholder-content {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 20px;
-  padding: 20px;
-  transition: background-color 0.5s ease;
 }
 
-/* Add pink background when a toy frog is detected */
-.webcam-container.frog-detected {
-  background-color: #ffb6c1;
-  animation: pinkPulse 2s infinite;
-}
-
-/* Add yellow-tinted background when a lemon is detected */
-.webcam-container.lemon-detected {
-  background-color: #fffacd;
-  animation: lemonPulse 2s infinite;
-}
-
-@keyframes pinkPulse {
-  0% {
-    background-color: #ffb6c1;
-  }
-  50% {
-    background-color: #ff69b4;
-  }
-  100% {
-    background-color: #ffb6c1;
-  }
-}
-
-@keyframes lemonPulse {
-  0% {
-    background-color: #fffacd;
-  }
-  50% {
-    background-color: #ffff99;
-  }
-  100% {
-    background-color: #fffacd;
-  }
-}
-
-.video-container {
-  position: relative;
-  width: 640px;
-  height: 480px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 2px solid #333;
-}
-
-.webcam-video {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: #000;
-  transform: scaleX(-1);
-  object-fit: cover;
-}
-
-.detection-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 10;
-}
-
-.detection-status {
-  background-color: #666;
-  color: white;
-  padding: 10px 20px;
-  border-radius: 4px;
-  font-weight: bold;
-  animation: pulse 1s infinite;
-  margin: 10px 0;
-  min-width: 250px;
-  text-align: center;
-}
-
-.detection-status.bottle-detected {
-  background-color: #4CAF50;
-  box-shadow: 0 0 20px rgba(76, 175, 80, 0.5);
-}
-
-.detection-status.frog-detected {
-  background-color: #ff69b4;
-  box-shadow: 0 0 20px rgba(255, 105, 180, 0.6);
-}
-
-.detection-status.lemon-detected {
-  background-color: #ffd700;
-  box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
-  color: #333;
-}
-
-@keyframes pulse {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-.status-icons {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: flex;
-  gap: 10px;
-  z-index: 10;
-}
-
-.icon {
-  width: 40px;
-  height: 40px;
+.ios-camera-icon {
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
+  background-color: #FFFFFF; /* Changed from rgba to solid white */
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  background-color: rgba(0, 0, 0, 0.6);
-  color: #ddd;
-  opacity: 0.4;
-  transition: all 0.3s ease;
+  position: relative;
 }
 
-.icon.active {
-  opacity: 1;
-  transform: scale(1.2);
+.ios-camera-icon:before {
+  content: '';
+  width: 32px;
+  height: 28px;
+  background-color: #808080; /* Changed to solid gray */
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 28'%3E%3Cpath d='M28,4 L24,0 L8,0 L4,4 L0,4 L0,28 L32,28 L32,4 L28,4 Z M16,22 C11.582,22 8,18.418 8,14 C8,9.582 11.582,6 16,6 C20.418,6 24,9.582 24,14 C24,18.418 20.418,22 16,22 Z M16,9 C13.239,9 11,11.239 11,14 C11,16.761 13.239,19 16,19 C18.761,19 21,16.761 21,14 C21,11.239 18.761,9 16,9 Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 28'%3E%3Cpath d='M28,4 L24,0 L8,0 L4,4 L0,4 L0,28 L32,28 L32,4 L28,4 Z M16,22 C11.582,22 8,18.418 8,14 C8,9.582 11.582,6 16,6 C20.418,6 24,9.582 24,14 C24,18.418 20.418,22 16,22 Z M16,9 C13.239,9 11,11.239 11,14 C11,16.761 13.239,19 16,19 C18.761,19 21,16.761 21,14 C21,11.239 18.761,9 16,9 Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-.right-arrow.active {
-  background-color: rgba(0, 128, 0, 0.8);
+.ios-placeholder-text {
+  font-size: 18px;
+  font-weight: 500;
   color: white;
-  box-shadow: 0 0 10px #00ff00;
-}
-
-.left-arrow.active {
-  background-color: rgba(128, 0, 0, 0.8);
-  color: white;
-  box-shadow: 0 0 10px #ff0000;
-}
-
-.button-container {
-  display: flex;
-  gap: 20px;
-  margin-top: 10px;
-}
-
-.webcam-button {
-  padding: 10px 20px;
-  font-size: 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-
-.webcam-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.start-button {
-  background-color: #4CAF50;
-  color: white;
-}
-
-.start-button:hover:not(:disabled) {
-  background-color: #45a049;
-}
-
-.stop-button {
-  background-color: #f44336;
-  color: white;
-}
-
-.stop-button:hover:not(:disabled) {
-  background-color: #da190b;
-}
-
-.detected-objects {
-  background-color: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 15px 25px;
-  border-radius: 8px;
-  max-width: 640px;
-  width: 100%;
-  margin-top: 10px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-}
-
-.detected-objects h3 {
-  margin: 0 0 15px 0;
-  color: #4CAF50;
   text-align: center;
+  max-width: 80%;
+  letter-spacing: -0.01em;
+}
+
+/* Video Titles */
+.video-titles {
+  position: absolute;
+  top: env(safe-area-inset-top, 10px);
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 16px;
+  z-index: 20;
+}
+
+.video-title-left {
+  font-size: 24px;
+  font-weight: 700;
+  color: #000000;
+  background-color: #FFFFFF;
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.video-title-right {
+  font-size: 20px;
+  font-weight: 600;
+  color: #000000;
+  background-color: #FFFFFF;
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+/* Detection Pills */
+.ios-detection-pill {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 10px) + 70px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  animation: pill-appear 0.3s ease-out;
+}
+
+@keyframes pill-appear {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.ios-recyclable-pill,
+.ios-non-recyclable-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 50px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  animation: fade-in 0.3s ease-out;
+}
+
+.ios-recyclable-pill {
+  background-color: var(--ios-green);
+  color: white;
+}
+
+.ios-non-recyclable-pill {
+  background-color: var(--ios-red);
+  color: white;
+}
+
+.ios-pill-icon {
   font-size: 20px;
 }
 
-.detected-objects ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: center;
-}
-
-.detected-objects li {
-  padding: 8px 15px;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+.ios-pill-text {
   font-size: 16px;
-  transition: all 0.3s ease;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.highlighted-object {
-  background-color: rgba(76, 175, 80, 0.3) !important;
-  border: 1px solid #4CAF50;
-  font-weight: bold;
+/* Camera Controls */
+.ios-camera-controls {
+  position: absolute;
+  bottom: env(safe-area-inset-bottom, 20px);
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  z-index: 30;
+  padding: 0 20px;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 50px);
 }
 
-.recyclable-object {
-  background-color: rgba(76, 175, 80, 0.3) !important;
-  border: 1px solid #4CAF50;
-  font-weight: bold;
+.ios-camera-controls.active {
+  opacity: 1;
 }
 
-.non-recyclable-object {
-  background-color: rgba(244, 67, 54, 0.3) !important;
-  border: 1px solid #f44336;
-  font-weight: bold;
+/* Camera Button */
+.ios-camera-button {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background-color: #FFFFFF; /* Changed from rgba to solid white */
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: none;
 }
 
-.frog-object {
-  background-color: rgba(255, 105, 180, 0.3) !important;
-  border: 1px solid #ff69b4;
-  font-weight: bold;
+.ios-button-inner {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background-color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
 }
 
-.wrapper-object {
-  background-color: rgba(255, 165, 0, 0.3) !important;
-  border: 1px solid #ff8c00;
-  font-weight: bold;
+.ios-start-icon {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--ios-red);
 }
 
-.lemon-object {
-  background-color: rgba(255, 215, 0, 0.3) !important;
-  border: 1px solid #ffd700;
-  font-weight: bold;
-  color: #333;
+.ios-stop-icon {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background-color: var(--ios-red);
 }
 
-.microbit-connection {
+.ios-info-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #FFFFFF; /* Changed from rgba to solid white */
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: none;
+}
+
+.ios-info-icon {
+  width: 22px;
+  height: 22px;
+  position: relative;
+}
+
+.ios-info-icon:before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #808080; /* Changed from white to gray for visibility */
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M11,0 C4.9,0 0,4.9 0,11 C0,17.1 4.9,22 11,22 C17.1,22 22,17.1 22,11 C22,4.9 17.1,0 11,0 Z M12,17 L10,17 L10,10 L12,10 L12,17 Z M11,8 C10.4,8 10,7.6 10,7 C10,6.4 10.4,6 11,6 C11.6,6 12,6.4 12,7 C12,7.6 11.6,8 11,8 Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M11,0 C4.9,0 0,4.9 0,11 C0,17.1 4.9,22 11,22 C17.1,22 22,17.1 22,11 C22,4.9 17.1,0 11,0 Z M12,17 L10,17 L10,10 L12,10 L12,17 Z M11,8 C10.4,8 10,7.6 10,7 C10,6.4 10.4,6 11,6 C11.6,6 12,6.4 12,7 C12,7.6 11.6,8 11,8 Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* Status Display */
+.ios-status-display {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 12px 20px;
+  background-color: rgba(255, 255, 255, 0.8);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  justify-content: center;
+  z-index: 10;
+  padding-bottom: env(safe-area-inset-bottom, 12px);
+}
+
+.ios-status-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: #000;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+/* Details Panel */
+.ios-detail-panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: #FFFFFF;
+  border-radius: 12px 12px 0 0;
+  box-shadow: none;
+  z-index: 50;
+  max-height: 60vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 0;
+  animation: slide-up 0.3s ease-out forwards;
 }
 
-.microbit-button {
-  padding: 12px 24px;
-  font-size: 16px;
-  font-weight: bold;
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.ios-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #FFFFFF;
+  position: sticky;
+  top: 0;
+  background-color: #FFFFFF;
+  z-index: 2;
+}
+
+.ios-panel-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: #000;
+  letter-spacing: -0.01em;
+}
+
+.ios-close-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: #FFFFFF;
   border: none;
-  border-radius: 20px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  background-color: #007bff;
-  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 200px;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.microbit-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.ios-close-button:hover {
+  background-color: var(--ios-gray4);
 }
 
-.microbit-button:hover:not(:disabled) {
-  background-color: #0056b3;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+.ios-close-icon {
+  font-size: 20px;
+  line-height: 1;
+  color: #000;
 }
 
-.connect-button::before {
-  content: "🔌";
-  margin-right: 8px;
+.ios-panel-content {
+  padding: 20px;
+  overflow-y: auto;
+  background-color: #FFFFFF;
 }
 
-.disconnect-button {
-  background-color: #dc3545;
+.ios-detail-status {
+  font-size: 15px;
+  color: var(--ios-gray);
+  margin-bottom: 16px;
+  line-height: 1.5;
 }
 
-.disconnect-button:hover:not(:disabled) {
-  background-color: #c82333;
+.ios-object-list h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: #000;
+  letter-spacing: -0.01em;
 }
 
-.disconnect-button::before {
-  content: "❌";
-  margin-right: 8px;
+.ios-object-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.connection-status {
+.ios-object-list li {
+  padding: 16px;
+  border-radius: var(--ios-radius-md);
+  background-color: #FFFFFF;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: none;
+  transition: all 0.2s ease;
+  border: 1px solid #FFFFFF;
+}
+
+.ios-object-list li.recyclable {
+  border-left: 4px solid var(--ios-green);
+}
+
+.ios-object-list li.non-recyclable {
+  border-left: 4px solid var(--ios-red);
+}
+
+.ios-object-name {
+  font-weight: 600;
+  font-size: 16px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.ios-object-confidence {
   font-size: 14px;
-  color: #666;
+  color: var(--ios-gray);
+  text-align: right;
+  min-width: 60px;
+}
+
+.ios-object-status {
+  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: 50px;
+  margin-top: 8px;
+  width: 100%;
   text-align: center;
-  min-height: 20px;
+  font-weight: 500;
 }
 
-.connection-status.connected {
-  color: #28a745;
-  font-weight: bold;
+.recyclable .ios-object-status {
+  background-color: #FFFFFF;
+  color: var(--ios-green);
 }
 
-.connection-status.connected::before {
-  content: "✓ ";
+.non-recyclable .ios-object-status {
+  background-color: #FFFFFF;
+  color: var(--ios-red);
 }
 
-.microbit-button-indicator {
-  display: inline-block;
-  width: 24px;
-  height: 24px;
-  line-height: 24px;
-  text-align: center;
-  border-radius: 50%;
-  background-color: #007bff;
-  color: white;
-  font-weight: bold;
-  margin-left: 8px;
-  animation: pulse 0.5s infinite alternate;
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .video-title-left {
+    font-size: 20px;
+    padding: 6px 10px;
+  }
+  
+  .video-title-right {
+    font-size: 16px;
+    padding: 6px 10px;
+  }
+  
+  .ios-detection-pill {
+    top: calc(env(safe-area-inset-top, 10px) + 60px);
+  }
+  
+  .ios-camera-button {
+    width: 64px;
+    height: 64px;
+  }
+  
+  .ios-button-inner {
+    width: 54px;
+    height: 54px;
+  }
+  
+  .ios-recyclable-pill,
+  .ios-non-recyclable-pill {
+    padding: 10px 16px;
+  }
+  
+  .ios-pill-icon {
+    font-size: 18px;
+  }
+  
+  .ios-pill-text {
+    font-size: 14px;
+  }
 }
 
-.microbit-button-indicator.buttonA {
-  background-color: #28a745;
+@media (max-width: 480px) {
+  .video-title-left {
+    font-size: 16px;
+    padding: 5px 8px;
+  }
+  
+  .video-title-right {
+    font-size: 14px;
+    padding: 5px 8px;
+  }
+  
+  .video-titles {
+    padding: 10px;
+  }
+  
+  .ios-detection-pill {
+    top: calc(env(safe-area-inset-top, 10px) + 50px);
+  }
+  
+  .ios-camera-button {
+    width: 60px;
+    height: 60px;
+  }
+  
+  .ios-button-inner {
+    width: 50px;
+    height: 50px;
+  }
+  
+  .ios-status-display {
+    padding: 8px 10px;
+  }
+  
+  .ios-status-text {
+    font-size: 13px;
+  }
 }
 
-.microbit-button-indicator.buttonB {
-  background-color: #dc3545;
-}
-
-/* Ensure the main button container has proper spacing */
-.button-container {
-  margin-top: 10px;
+/* Dark Mode Support - FORCE WHITE even in dark mode */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ios-background: #FFFFFF; /* Keep white even in dark mode */
+    --ios-card-background: #FFFFFF;
+    --ios-blur-background: #FFFFFF;
+  }
+  
+  body {
+    color: #000000; /* Keep text black for contrast */
+    background-color: #FFFFFF;
+  }
+  
+  .ios-container {
+    background: #FFFFFF;
+  }
+  
+  .ios-app {
+    background-color: #FFFFFF;
+  }
+  
+  .ios-status-display {
+    background-color: #FFFFFF;
+    border-top: 1px solid var(--ios-gray5);
+  }
+  
+  .ios-status-text {
+    color: #000000;
+  }
+  
+  .ios-panel-header {
+    background-color: #FFFFFF;
+    border-bottom: 1px solid var(--ios-gray5);
+  }
+  
+  .ios-panel-content {
+    background-color: #FFFFFF;
+  }
+  
+  .ios-panel-header h3 {
+    color: #000000;
+  }
+  
+  .ios-close-icon {
+    color: #000000;
+  }
+  
+  .ios-object-list h4 {
+    color: #000000;
+  }
 } 
