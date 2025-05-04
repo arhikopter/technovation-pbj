@@ -1,12 +1,15 @@
 {
   "files": {
-    "main.css": "https://arikhopter.github.io/technovation-pbi/static/css/main.e8ec1098.css",
-    "main.js": "https://arikhopter.github.io/technovation-pbi/static/js/main.cf204f75.js",
-    "static/js/206.0b490ef6.chunk.js": "https://arikhopter.github.io/technovation-pbi/static/js/206.0b490ef6.chunk.js",
-    "index.html": "https://arikhopter.github.io/technovation-pbi/index.html"
+    "main.css": "https://arhikopter.github.io/technovation-pbj/static/css/main.d809af0a.css",
+    "main.js": "https://arhikopter.github.io/technovation-pbj/static/js/main.124a9a72.js",
+    "static/js/453.8a3c6426.chunk.js": "https://arhikopter.github.io/technovation-pbj/static/js/453.8a3c6426.chunk.js",
+    "index.html": "https://arhikopter.github.io/technovation-pbj/index.html",
+    "main.d809af0a.css.map": "https://arhikopter.github.io/technovation-pbj/static/css/main.d809af0a.css.map",
+    "main.124a9a72.js.map": "https://arhikopter.github.io/technovation-pbj/static/js/main.124a9a72.js.map",
+    "453.8a3c6426.chunk.js.map": "https://arhikopter.github.io/technovation-pbj/static/js/453.8a3c6426.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.e8ec1098.css",
-    "static/js/main.cf204f75.js"
+    "static/css/main.d809af0a.css",
+    "static/js/main.124a9a72.js"
   ]
 }
